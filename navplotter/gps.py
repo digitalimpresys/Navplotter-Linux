@@ -1,5 +1,6 @@
 """Our own position: from Signal K, from gpsd, or a fixed one from the settings.
 
+"none" (the default): no position of our own; the node still receives, relays and shows the others.
 "auto" tries Signal K first (the boat GPS, already on the boat network) and then gpsd.
 """
 import json
@@ -26,6 +27,9 @@ class GpsSource:
     def _run(self):
         kind = self.s.get("source", "auto")
         last_error = None
+        if kind == "none":
+            self.status = "none"
+            return
         while True:
             try:
                 if kind == "fixed":

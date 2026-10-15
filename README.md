@@ -7,7 +7,7 @@ web app dei nodi NavPlotter esistenti, con integrazione Signal K e OpenCPN.
 
 - Un Raspberry Pi con Raspberry Pi OS (Bookworm o successivo).
 - Un Heltec V2 con il firmware modem (dal webflasher: "Heltec V2 — Raspberry Pi modem"), collegato via USB.
-- Una fonte di posizione: Signal K, gpsd, oppure una posizione fissa nelle impostazioni.
+- Facoltativo: una fonte di posizione (posizione fissa, gpsd o Signal K).
 
 ## Installazione
 
@@ -39,16 +39,18 @@ a mano, poi `sudo systemctl restart navplotter`.
 |---|---|---|
 | `modem` | `/dev/navplotter-modem` | porta seriale dell'Heltec V2 |
 | `http_port` | `80` | porta della web app |
-| `gps.source` | `auto` | `signalk`, `gpsd`, `fixed` o `auto` (prima Signal K, poi gpsd) |
+| `gps.source` | `none` | `none` (nessuna posizione propria: il nodo riceve, inoltra e mostra gli altri), `fixed`, `gpsd`, `signalk` o `auto` (prima Signal K, poi gpsd) |
 | `gps.signalk_url` | `http://127.0.0.1:3000` | server Signal K |
 | `gps.signalk_token` | vuoto | token se Signal K richiede l'accesso |
 | `gps.lat`, `gps.lon` | `0` | posizione per `fixed` |
-| `ais.enabled` | `true` | invia le barche NavPlotter come bersagli AIS |
+| `ais.enabled` | `false` | invia le barche NavPlotter come bersagli AIS |
 | `ais.destinations` | `["127.0.0.1:10110"]` | indirizzi UDP che ricevono le frasi NMEA |
 | `ais.mmsi` | `{}` | MMSI veri per id: `{"A7C94F1B": 247123456}` |
 | `id` | vuoto | id del nodo in esadecimale; vuoto prende quello del modem |
 
-## Signal K e OpenCPN
+## Signal K e OpenCPN (facoltativo)
+
+Spento di default: per usarlo mettere `"ais": {"enabled": true}` e una fonte di posizione.
 
 Il nodo invia frasi `!AIVDM` (tipo 18 per la posizione, tipo 24 per nome e tipo) via UDP alla porta 10110.
 
