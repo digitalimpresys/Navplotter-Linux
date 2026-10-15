@@ -1,0 +1,21 @@
+name: Firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  heltec-modem:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: pip install platformio pyserial
+      - name: Build Heltec V2 modem
+        run: pio run -d firmware/heltec-modem
+      - name: Check the test tool
+        run: python -m py_compile tools/modem_test.py
