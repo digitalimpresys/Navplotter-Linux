@@ -25,6 +25,7 @@ class GpsSource:
 
     def _run(self):
         kind = self.s.get("source", "auto")
+        last_error = None
         while True:
             try:
                 if kind == "fixed":
@@ -37,12 +38,17 @@ class GpsSource:
                     try:
                         self._signalk()
                     except Exception as e:
-                        log.info("Signal K not usable (%s), trying gpsd", e)
                         self.status = "Signal K: %s" % e
-                        self._gpsd()
+                        try:
+                            self._gpsd()
+                        except Exception as e2:
+                            raise RuntimeError("Signal K: %s; gpsd: %s" % (e, e2))
             except Exception as e:
                 self.status = "%s: %s" % (kind, e)
-                log.warning("position source %s: %s", kind, e)
+                # The same error every 5 s is logged once
+                if self.status != last_error:
+                    log.warning("no position (%s)", self.status)
+                    last_error = self.status
             time.sleep(5)
 
     def _fixed(self):

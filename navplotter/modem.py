@@ -1,5 +1,7 @@
 """The Heltec V2 USB modem (firmware/heltec-modem): one text line per packet, see docs/PROTOCOL.md, section 10."""
+import glob
 import logging
+import os
 import threading
 import time
 
@@ -39,13 +41,27 @@ class Modem:
             except (OSError, serial.SerialException):
                 return False
 
+    def _find_port(self):
+        """The configured port, or else the first CP2102 (the Heltec V2 USB chip) that is plugged in."""
+        if os.path.exists(self.port_name):
+            return self.port_name
+        found = sorted(glob.glob("/dev/serial/by-id/usb-Silicon_Labs_CP210*"))
+        if found:
+            return found[0]
+        raise OSError("%s not found and no CP2102 USB device plugged in" % self.port_name)
+
     def _run(self):
+        last_error = None
         while True:
             try:
                 self._open()
+                last_error = None
                 self._read_loop()
             except (OSError, serial.SerialException) as e:
-                log.warning("modem on %s: %s", self.port_name, e)
+                # The same error every 5 s is logged once
+                if str(e) != last_error:
+                    log.warning("modem: %s", e)
+                    last_error = str(e)
             with self.lock:
                 self.ready = False
                 if self.port:
@@ -57,10 +73,12 @@ class Modem:
             time.sleep(5)
 
     def _open(self):
-        port = serial.Serial(self.port_name, 115200, timeout=1)
+        name = self._find_port()
+        # exclusive: if another program (OpenPlotter, Signal K, brltty) holds the port, say so instead of sharing it
+        port = serial.Serial(name, 115200, timeout=1, exclusive=True)
         with self.lock:
             self.port = port
-        log.info("modem port %s open, waiting for READY", self.port_name)
+        log.info("modem port %s open, waiting for READY", name)
         asked = time.monotonic()
         while not self.ready:
             line = port.readline().decode("ascii", "replace").strip()
