@@ -17,7 +17,7 @@
 #include <RadioLib.h>
 #include "traffic_packet.h"
 
-#define MODEM_VERSION "0.1.0"
+#define FIRMWARE_VERSION "0.1.0"
 
 // ---- Heltec WiFi LoRa 32 V2 pins ----
 #define PIN_LORA_NSS 18
@@ -74,7 +74,7 @@ uint32_t dutyUsed() {
 // ---- Serial ----
 
 void printReady() {
-  Serial.printf("READY %s %08lX %.3f %d %d\n", MODEM_VERSION, (unsigned long)myId, LORA_FREQ, LORA_SF, LORA_POWER_DBM);
+  Serial.printf("READY %s %08lX %.3f %d %d\n", FIRMWARE_VERSION, (unsigned long)myId, LORA_FREQ, LORA_SF, LORA_POWER_DBM);
 }
 
 int hexValue(char c) {
