@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0b1d33">
+<title>NavPlotter</title>
+<style>
+:root{--bg:#0b1d33;--panel:#12294a;--line:#27456f;--text:#eef3fa;--dim:#9db0c9;--accent:#3da5ff;--red:#e5383b;--green:#2fd16b;--water:#a9d3ea}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:16px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overflow:hidden;overscroll-behavior:none}
+#app{display:flex;flex-direction:column;height:100%;padding-top:env(safe-area-inset-top)}
+#status{display:flex;gap:12px;align-items:center;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:14px;white-space:nowrap;overflow:hidden}
+#status b{font-size:17px}
+#status .sp{flex:1}
+#dot{width:10px;height:10px;border-radius:50%;background:var(--red);flex:none}
+#dot.ok{background:var(--green)}
+#alarm{display:none;background:var(--red);color:#fff;font-weight:700;padding:6px 8px;font-size:15px;align-items:center;gap:8px}
+#alarm.on{display:flex}
+#alarmText{flex:1;text-align:center;animation:blink 1s steps(2) infinite}
+#alarm.muted #alarmText{animation:none}
+@keyframes blink{50%{opacity:.6}}
+#mute{flex:none;border:2px solid #fff;background:none;color:#fff;border-radius:9px;padding:7px 10px;font-size:14px;font-weight:700}
+#alarm.muted #mute{background:#fff;color:var(--red)}
+#offline{display:none;background:#8a6d00;color:#fff;text-align:center;padding:4px;font-size:13px}
+#offline.on{display:block}
+main{flex:1;position:relative;overflow:hidden}
+.page{position:absolute;inset:0;display:none;overflow:auto;-webkit-overflow-scrolling:touch}
+.page.on{display:block}
+#pMap,#pCompass{overflow:hidden}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#mapBtns{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:8px}
+#mapBtns button{width:46px;height:46px;border-radius:10px;border:1px solid var(--line);background:rgba(18,41,74,.92);color:var(--text);font-size:24px;font-weight:700}
+#mapBtns button.on{background:var(--accent);color:#04121f}
+#mapInfo{position:absolute;left:10px;bottom:10px;background:rgba(18,41,74,.92);border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-size:13px;pointer-events:none}
+#sheet{position:absolute;left:8px;right:8px;bottom:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;display:none;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+#sheet.on{display:block}
+#sheet h3{margin:0 0 6px}
+#sheet .row{display:flex;gap:8px;margin-top:10px}
+nav{display:flex;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;color:var(--dim);padding:9px 2px 8px;font-size:12px}
+nav button.on{color:var(--accent);font-weight:700}
+nav button i{display:block;font-style:normal;font-size:20px;line-height:22px}
+.wrap{padding:12px;max-width:640px;margin:0 auto}
+h2{margin:6px 0 12px;font-size:20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.card.alarm{border-color:var(--red);box-shadow:0 0 0 1px var(--red) inset}
+.card.stale{opacity:.55}
+.card .title{display:flex;align-items:center;gap:8px;font-weight:700;font-size:17px}
+.card .sub{color:var(--dim);font-size:14px;margin-top:4px}
+.tag{font-size:11px;font-weight:400;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--dim)}
+.btn{background:var(--accent);color:#04121f;border:0;border-radius:9px;padding:10px 14px;font-size:15px;font-weight:700}
+.btn.sec{background:none;color:var(--text);border:1px solid var(--line)}
+.btn.red{background:var(--red);color:#fff}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+label{display:block;margin:14px 0 6px;color:var(--dim);font-size:14px}
+input[type=text],input[type=password],select{width:100%;padding:11px;border-radius:9px;border:1px solid var(--line);background:#0b1d33;color:var(--text);font-size:16px}
+.types{display:flex;gap:8px}
+.types label{flex:1;margin:0;border:1px solid var(--line);border-radius:10px;padding:8px 4px;text-align:center;color:var(--text);font-size:14px}
+.types input{display:none}
+.types label.on{border-color:var(--accent);background:rgba(61,165,255,.16)}
+.types canvas{width:44px;height:44px;margin:0 auto 4px}
+.check{display:flex;align-items:center;gap:10px;margin-top:14px}
+.check input{width:22px;height:22px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px}
+.kv span:nth-child(odd){color:var(--dim)}
+.hint{color:var(--dim);font-size:13px;margin-top:6px}
+.empty{color:var(--dim);text-align:center;padding:30px 10px}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+.seg button{flex:1;background:none;border:0;color:var(--dim);padding:10px;font-size:15px}
+.seg button.on{background:var(--accent);color:#04121f;font-weight:700}
+.leg{display:flex;align-items:center;gap:6px;padding:7px 0;border-top:1px solid var(--line)}
+.leg span{flex:1}
+.leg button{width:38px;height:36px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--text);font-size:16px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+#pChat{overflow:hidden}
+#chat{display:flex;flex-direction:column;height:100%;max-width:720px;margin:0 auto}
+#chatPeers{display:flex;gap:6px;padding:8px 10px;overflow-x:auto;border-bottom:1px solid var(--line);flex:none;-webkit-overflow-scrolling:touch}
+#chatPeers button{flex:none;border:1px solid var(--line);background:none;color:var(--text);border-radius:16px;padding:7px 13px;font-size:15px;white-space:nowrap;position:relative}
+#chatPeers button.on{background:var(--accent);color:#04121f;border-color:var(--accent);font-weight:700}
+#chatPeers button.gone{opacity:.55}
+#chatPeers button.alarm{border-color:var(--red);color:var(--red)}
+#chatPeers button.alarm.on{background:var(--red);color:#fff}
+.badge{display:inline-block;min-width:18px;height:18px;line-height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:12px;font-weight:700;text-align:center;margin-left:6px;padding:0 5px}
+#chatLog{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;-webkit-overflow-scrolling:touch}
+.bub{max-width:82%;padding:8px 11px;border-radius:14px;font-size:16px;line-height:1.3;word-break:break-word}
+.bub.in{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
+.bub.out{align-self:flex-end;background:#1d5fa8;border-bottom-right-radius:4px}
+.bub.out.fail{background:#7a2326}
+.bub .who{font-size:12px;font-weight:700;color:var(--accent);margin-bottom:2px}
+.bub .meta{font-size:11px;color:var(--dim);margin-top:3px;text-align:right}
+.bub.out .meta{color:#cfe2f7}
+#chatHint{color:var(--dim);font-size:13px;text-align:center;padding:0 12px 6px;flex:none}
+#chatBar{display:flex;gap:8px;padding:8px 10px;border-top:1px solid var(--line);background:var(--panel);flex:none}
+#chatText{flex:1;min-width:0}
+#chatSend{flex:none}
+#msgToast{display:none;background:#f2c200;color:#111;padding:8px 10px;font-size:15px;font-weight:600}
+#msgToast.on{display:block}
+nav button{position:relative}
+nav .badge{position:absolute;top:3px;left:55%;margin:0}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="status">
+    <span id="dot"></span>
+    <span><b id="sSog">--.-</b> kn</span>
+    <span><b id="sCog">---</b>&deg;</span>
+    <span id="sHidden" class="tag" style="display:none" data-i18n="hidden"></span>
+    <span id="sDest"></span>
+    <span class="sp"></span>
+    <span id="sTime">--:--:--</span>
+  </div>
+  <div id="offline" data-i18n="offline"></div>
+  <div id="alarm"><span id="alarmText"></span><button id="mute"></button></div>
+  <div id="msgToast"></div>
+  <main>
+    <section class="page on" id="pMap">
+      <canvas id="map"></canvas>
+      <div id="mapBtns">
+        <button id="zIn">+</button>
+        <button id="zOut">&minus;</button>
+        <button id="follow" class="on">&#9678;</button>
+      </div>
+      <div id="mapInfo"></div>
+      <div id="sheet"></div>
+    </section>
+    <section class="page" id="pCompass"><canvas id="compass"></canvas></section>
+    <section class="page" id="pNearby"><div class="wrap"><h2 data-i18n="nearby"></h2><div id="nearbyList"></div></div></section>
+    <section class="page" id="pChat"><div id="chat">
+      <div id="chatPeers"></div>
+      <div id="chatLog"></div>
+      <div id="chatHint"></div>
+      <div id="chatBar"><input type="text" id="chatText" maxlength="63" autocomplete="off" enterkeyhint="send"><button class="btn" id="chatSend" data-i18n="send"></button></div>
+    </div></section>
+    <section class="page" id="pWp"><div class="wrap">
+      <div class="seg"><button id="segWp" class="on" data-i18n="waypoints"></button><button id="segRt" data-i18n="routes"></button><button id="segTrk" data-i18n="track" style="display:none"></button></div>
+      <div id="wpPane">
+        <div class="btns" style="margin:0 0 12px"><button class="btn" id="wpHere" data-i18n="wpHere"></button></div>
+        <div id="wpList"></div><div class="hint" data-i18n="wpHint"></div>
+      </div>
+      <div id="trkPane" style="display:none">
+        <div class="card"><div class="title" data-i18n="trackTitle"></div><div class="kv" id="trkInfo" style="margin-top:8px"></div>
+          <div class="check"><input type="checkbox" id="trkShow"><span data-i18n="trackShow"></span></div>
+          <div class="btns"><a class="btn" id="trkGpx" href="/api/track.gpx" download data-i18n="trackGpx"></a><button class="btn sec" id="trkOnMap" data-i18n="trackOnMap"></button><button class="btn red" id="trkNew" data-i18n="trackNew"></button></div>
+          <div class="hint" data-i18n="trackHint"></div></div>
+      </div>
+      <div id="rtPane" style="display:none">
+        <div class="btns" style="margin:0 0 12px"><button class="btn" id="rtNew" data-i18n="rtNew"></button></div>
+        <div id="rtList"></div>
+      </div></div></section>
+    <section class="page" id="pSetup"><div class="wrap"><h2 data-i18n="setup"></h2>
+      <div class="card">
+        <label data-i18n="language"></label>
+        <select id="fLang"><option value="en">English</option><option value="it">Italiano</option></select>
+        <label data-i18n="nodeName"></label>
+        <input type="text" id="fName" maxlength="11" autocomplete="off" autocapitalize="off">
+        <div class="check"><input type="checkbox" id="fShare"><span data-i18n="share"></span></div>
+        <div class="hint" data-i18n="shareHint"></div>
+        <label data-i18n="nodeType"></label>
+        <div class="types" id="fTypes"></div>
+        <div class="hint" data-i18n="typeHint"></div>
+        <div id="wifiOffBox" style="display:none">
+          <label data-i18n="wifiOff"></label>
+          <select id="fWifiOff"><option value="0" data-i18n="wifiOffNever"></option><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option></select>
+          <div class="hint" data-i18n="wifiOffHint"></div>
+          <div id="sleepBox" style="display:none">
+            <label data-i18n="sleep"></label>
+            <select id="fSleep"><option value="0" data-i18n="sleepNo"></option><option value="1">1 min</option><option value="2">2 min</option><option value="3">5 min</option><option value="4">10 min</option><option value="5">15 min</option><option value="6">30 min</option><option value="7">60 min</option></select>
+            <div class="hint" data-i18n="sleepHint"></div>
+          </div>
+        </div>
+        <label data-i18n="alarmProfile"></label>
+        <select id="fProfile"><option value="0" data-i18n="profHarbour"></option><option value="1" data-i18n="profCoastal"></option><option value="2" data-i18n="profOpen"></option><option value="3" data-i18n="profNight"></option><option value="4" data-i18n="profCustom"></option></select>
+        <div id="customBox" style="display:none">
+          <label data-i18n="customCpa"></label>
+          <input type="text" inputmode="decimal" id="fCpa" maxlength="5">
+          <label data-i18n="customTcpa"></label>
+          <input type="text" inputmode="numeric" id="fTcpa" maxlength="3">
+        </div>
+        <div class="hint" id="profileHint"></div>
+        <label data-i18n="alarmRange"></label>
+        <select id="fRange"><option value="3">3 NM</option><option value="6">6 NM</option><option value="12">12 NM</option><option value="0" data-i18n="noLimit"></option></select>
+        <div class="hint" data-i18n="rangeHint"></div>
+        <div class="check"><input type="checkbox" id="fSound"><span data-i18n="alarmSound"></span></div>
+        <div class="btns"><button class="btn sec" id="testSound" data-i18n="testSound"></button></div>
+        <div id="netBox">
+        <label data-i18n="connection"></label>
+        <select id="fNet"><option value="0" data-i18n="netOffgrid"></option><option value="1" data-i18n="netDirect"></option><option value="2" data-i18n="netBoat"></option></select>
+        <div class="hint" id="netHint"></div>
+        <div id="boatBox" style="display:none">
+          <label data-i18n="boatSsid"></label>
+          <input type="text" id="fStaSsid" maxlength="32" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <label data-i18n="boatPass"></label>
+          <input type="password" id="fStaPass" maxlength="64" autocomplete="off">
+          <div class="hint" id="boatPassHint"></div>
+        </div>
+        </div>
+        <label data-i18n="charts"></label>
+        <select id="fTiles"><option value="0" data-i18n="tilesOnline"></option><option value="1" data-i18n="tilesSd"></option><option value="2" data-i18n="tilesNone"></option></select>
+        <label data-i18n="wifiPass"></label>
+        <input type="password" id="fPass" maxlength="32" autocomplete="off" placeholder="">
+        <div class="hint" data-i18n="wifiHint"></div>
+        <div class="btns"><button class="btn" id="save" data-i18n="save"></button><span id="saved" class="hint"></span></div>
+      </div>
+      <div class="card"><div class="kv" id="info"></div></div>
+    </div></section>
+  </main>
+  <nav id="nav">
+    <button data-p="pMap" class="on"><i>&#9973;</i><span data-i18n="map"></span></button>
+    <button data-p="pCompass"><i>&#10022;</i><span data-i18n="compass"></span></button>
+    <button data-p="pNearby"><i>&#9678;</i><span data-i18n="nearby"></span></button>
+    <button data-p="pChat" id="navChat" style="display:none"><i>&#9993;</i><span data-i18n="chat"></span><b class="badge" id="navBadge" style="display:none"></b></button>
+    <button data-p="pWp"><i>&#9873;</i><span data-i18n="waypoints"></span></button>
+    <button data-p="pSetup"><i>&#9881;</i><span data-i18n="setup"></span></button>
+  </nav>
+</div>
+<script>
+'use strict';
+// ---------- Texts: English is the reference language, Italian the first translation ----------
+const I18N = {
+en: {map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
+  quietOn:'Alarm off for this boat (until power-off)', quietOff:'Alarm on again', quietTag:'alarm off',
+  chat:'Chat', send:'Send', everybody:'Everybody', message:'Message', msgFrom:'Message from', msgPlaceholder:'Write a message', msgNone:'No messages yet.',
+  msgHintAll:'To everybody in range: no confirmation is asked.', msgHintOne:'Repeated until the other node confirms it. You are told when it is read.', msgHintGone:'This node is not being received now: the message may not arrive.',
+  st1:'sending', st2:'sent', st3:'received', st4:'read', st5:'NO ANSWER', minAgo:'min ago', now:'now', toAll:'to everybody',
+  offline:'Connection to the node lost', noFix:'Waiting for GPS fix', noGps:'GPS not found',
+  language:'Language', nodeName:'Node name', nodeType:'This node is a', boat:'Boat', person:'Person', object:'Object',
+  typeHint:'The type is sent over LoRa: the other nodes show the matching symbol.',
+  wifiOff:'Switch the WiFi off after power-up', sleep:'Then sleep, and send the position every', sleepNo:'No: stay awake',
+  sleepHint:'Buoy: once the WiFi is off the node sleeps and wakes only to send its position. While asleep it does not relay the other nodes. The PRG key wakes it for set-up. Needs the WiFi switch-off time above.', wifiOffNever:'Never: always on', wifiOffHint:'For an object left alone, like a buoy: the WiFi stays on for the time needed to set it up, then goes off to save the battery. It never goes off while a phone is connected. To get it back, switch the node off and on.',
+  alarmProfile:'Collision alarm', profHarbour:'Harbour and narrow waters', profCoastal:'Coastal', profOpen:'Open sea', profNight:'Night or poor visibility', profCustom:'Custom',
+  customCpa:'Passing distance that raises the alarm (NM, 0.02 to 5)', customTcpa:'Warning time (minutes, 1 to 60)',
+  profileHint1:'Alarm when another node will pass within', profileHint2:'in the next', profileHint3:'min. Only boats with a NavPlotter are seen: ships and other boats are not.',
+  alarmRange:'Alarm range', noLimit:'No limit', rangeHint:'Only nodes inside this distance can raise the collision alarm.',
+  alarmSound:'Alarm sound on this phone', testSound:'Test sound', charts:'Charts',
+  tilesOnline:'Online (needs internet)', tilesSd:'SD card on the node', tilesNone:'None (plain background)',
+  wifiPass:'New password for the node WiFi', wifiHint:'Leave empty to keep it. At least 8 characters; the node restarts.',
+  save:'Save', saved:'Saved', saveFail:'Not saved', restarting:'Saved. The node is restarting: reconnect to the WiFi of the chosen connection and reload this page.',
+  collision:'COLLISION', in:'in', noNodes:'No nodes received yet', relayed:'relayed', simulated:'simulated',
+  dist:'Distance', brg:'Bearing', speed:'Speed', course:'Course', cpa:'Closest approach', noApproach:'not approaching',
+  seen:'Last heard', ago:'s ago', signal:'Signal', close:'Close', centerOn:'Show on map',
+  wpHere:'Add waypoint at my position', wpHint:'Long press on the map to add a waypoint there.', noWp:'No waypoints yet',
+  wpName:'Waypoint name', goTo:'Go to', stop:'Stop', rename:'Rename', del:'Delete', delAsk:'Delete this waypoint?',
+  dest:'Destination', heading:'HEADING', fromCog:'from GPS course', stopped:'stopped', steer:'Steer', port:'port', stbd:'starboard', onCourse:'on course',
+  iGps:'GPS', iFix:'fix', iSats:'satellites', iLora:'LoRa', iSent:'sent', iRecv:'received', iRelay:'relayed', iSd:'SD card', iBat:'Battery',
+  iId:'Node id', iVer:'Firmware', iNet:'WiFi network', yes:'present', no:'not present', me:'me',
+  track:'Track', trackTitle:'Track of the boat', trackShow:'Show the track on the map', trackGpx:'Save as GPX', trackOnMap:'Show on the map', trackNew:'New track',
+  trackHint:'The node records a point every 25 metres made good, by itself, also with the phone off. When the track is full its oldest part is dropped. A new track erases the present one: save it first if you want to keep it.',
+  trackAsk:'Start a new track? The present one is erased.', trkPoints:'Points', trkLength:'Length', trkStart:'Start', trkTime:'Duration', trkNone:'No points yet: the boat has not moved.',
+  routes:'Routes', rtNew:'New route', rtName:'Route name', noRoutes:'No routes yet', rtFollow:'Follow', edit:'Edit', done:'Done',
+  rtAddWp:'Add a waypoint to the route', rtEmpty:'No waypoints in this route yet', rtNoWps:'Create some waypoints first', total:'Total', remaining:'Remaining',
+  route:'Route', rtDelAsk:'Delete this route?', active:'active', legs:'waypoints', arrived:'Arrived at',
+  mute:'Silence', muted:'Silenced', hidden:'hidden',
+  share:'Share my position over LoRa', shareHint:'When off, this node stays invisible to the others. It still receives them, raises alarms and relays their packets.',
+  connection:'Connection', netOffgrid:'Off-grid: node WiFi, charts from SD card', netDirect:'Node WiFi, online charts', netBoat:'Boat WiFi (internet through the boat router)',
+  hintOffgrid:'Connect the phone to the node WiFi. Nothing needs internet; charts come from the SD card on the node.',
+  hintDirect:'Connect the phone to the node WiFi. Charts are downloaded by the phone, so it needs mobile data.',
+  hintBoat:'The node joins the boat WiFi. Connect the phone to the boat WiFi too and open',
+  hintBoat2:'or the address shown on the node display. The node WiFi stays on as a way back in.', hintBoat3:'If the boat WiFi is not found, the node WiFi comes back by itself.',
+  boatSsid:'Boat WiFi name', boatPass:'Boat WiFi password', passKeep:'A password is stored: leave empty to keep it.', passNone:'Leave empty for an open network.',
+  iWifi:'Network', onBoat:'on the boat WiFi', boatLost:'boat WiFi not reached', nodeWifi:'node WiFi'},
+it: {map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
+  quietOn:'Spegni allarme per questa barca (fino allo spegnimento)', quietOff:'Riattiva allarme', quietTag:'allarme spento',
+  chat:'Chat', send:'Invia', everybody:'Tutti', message:'Messaggio', msgFrom:'Messaggio da', msgPlaceholder:'Scrivi un messaggio', msgNone:'Nessun messaggio.',
+  msgHintAll:'A tutti quelli in portata: non viene chiesta conferma.', msgHintOne:"Ripetuto finch\u00e9 l'altro nodo non conferma. Vieni avvisato quando viene letto.", msgHintGone:'Questo nodo ora non viene ricevuto: il messaggio potrebbe non arrivare.',
+  st1:'invio', st2:'inviato', st3:'ricevuto', st4:'letto', st5:'NESSUNA RISPOSTA', minAgo:'min fa', now:'adesso', toAll:'a tutti',
+  offline:'Collegamento con il nodo perso', noFix:'In attesa del fix GPS', noGps:'GPS non trovato',
+  language:'Lingua', nodeName:'Nome del nodo', nodeType:'Questo nodo è', boat:'Barca', person:'Persona', object:'Oggetto',
+  typeHint:'Il tipo viene trasmesso via LoRa: gli altri nodi mostrano il simbolo corrispondente.',
+  wifiOff:"Spegni il WiFi dopo l'accensione", sleep:'Poi dormi, e trasmetti la posizione ogni', sleepNo:'No: resta sveglio',
+  sleepHint:"Boa: spento il WiFi il nodo dorme e si sveglia solo per trasmettere la posizione. Mentre dorme non fa da ripetitore per gli altri. Il tasto PRG lo risveglia per le impostazioni. Serve il tempo di spegnimento del WiFi qui sopra.", wifiOffNever:'Mai: sempre acceso', wifiOffHint:"Per un oggetto lasciato da solo, come una boa: il WiFi resta acceso il tempo che serve per impostarlo, poi si spegne per risparmiare batteria. Non si spegne mai finch\u00e9 un telefono \u00e8 collegato. Per riaverlo, spegni e riaccendi il nodo.",
+  alarmProfile:'Allarme di abbordo', profHarbour:'Porto e acque ristrette', profCoastal:'Costiero', profOpen:'Mare aperto', profNight:'Notte o scarsa visibilit\u00e0', profCustom:'Personalizzato',
+  customCpa:"Distanza di passaggio che fa scattare l'allarme (miglia, da 0,02 a 5)", customTcpa:'Anticipo (minuti, da 1 a 60)',
+  profileHint1:"Allarme quando un altro nodo passer\u00e0 a meno di", profileHint2:'entro i prossimi', profileHint3:'min. Si vedono solo le barche con un NavPlotter: navi e altre barche no.',
+  alarmRange:'Raggio degli allarmi', noLimit:'Senza limite', rangeHint:"Solo i nodi entro questa distanza possono far scattare l'allarme di abbordo.",
+  alarmSound:'Allarme sonoro su questo telefono', testSound:'Prova suono', charts:'Carte',
+  tilesOnline:'Online (serve internet)', tilesSd:'Scheda SD sul nodo', tilesNone:'Nessuna (sfondo semplice)',
+  wifiPass:'Nuova password del WiFi del nodo', wifiHint:'Lascia vuoto per non cambiarla. Almeno 8 caratteri; il nodo si riavvia.',
+  save:'Salva', saved:'Salvato', saveFail:'Non salvato', restarting:'Salvato. Il nodo si sta riavviando: ricollegati al WiFi del collegamento scelto e ricarica questa pagina.',
+  collision:'ABBORDO', in:'fra', noNodes:'Nessun nodo ricevuto', relayed:'ripetuto', simulated:'simulato',
+  dist:'Distanza', brg:'Rilevamento', speed:'Velocità', course:'Rotta', cpa:'Massimo avvicinamento', noApproach:'nessun avvicinamento',
+  seen:'Ultimo contatto', ago:'s fa', signal:'Segnale', close:'Chiudi', centerOn:'Mostra sulla mappa',
+  wpHere:'Aggiungi waypoint qui', wpHint:'Tocco lungo sulla mappa per aggiungere un waypoint in quel punto.', noWp:'Nessun waypoint',
+  wpName:'Nome del waypoint', goTo:'Vai', stop:'Annulla', rename:'Rinomina', del:'Elimina', delAsk:'Eliminare questo waypoint?',
+  dest:'Destinazione', heading:'PRORA', fromCog:'da COG', stopped:'ferma', steer:'Accosta', port:'sinistra', stbd:'dritta', onCourse:'in rotta',
+  iGps:'GPS', iFix:'fix', iSats:'satelliti', iLora:'LoRa', iSent:'inviati', iRecv:'ricevuti', iRelay:'ripetuti', iSd:'Scheda SD', iBat:'Batteria',
+  iId:'Id del nodo', iVer:'Firmware', iNet:'Rete WiFi', yes:'presente', no:'assente', me:'io',
+  track:'Tracciato', trackTitle:'Tracciato della barca', trackShow:'Mostra il tracciato sulla mappa', trackGpx:'Salva come GPX', trackOnMap:'Mostra sulla mappa', trackNew:'Nuovo tracciato',
+  trackHint:"Il nodo registra un punto ogni 25 metri percorsi, da solo, anche a telefono spento. Quando il tracciato \u00e8 pieno la parte pi\u00f9 vecchia viene tolta. Un nuovo tracciato cancella quello attuale: salvalo prima se vuoi tenerlo.",
+  trackAsk:'Iniziare un nuovo tracciato? Quello attuale viene cancellato.', trkPoints:'Punti', trkLength:'Lunghezza', trkStart:'Inizio', trkTime:'Durata', trkNone:'Ancora nessun punto: la barca non si \u00e8 mossa.',
+  routes:'Rotte', rtNew:'Nuova rotta', rtName:'Nome della rotta', noRoutes:'Nessuna rotta', rtFollow:'Segui', edit:'Modifica', done:'Fine',
+  rtAddWp:'Aggiungi un waypoint alla rotta', rtEmpty:'Nessun waypoint in questa rotta', rtNoWps:'Crea prima dei waypoint', total:'Totale', remaining:'Mancano',
+  route:'Rotta', rtDelAsk:'Eliminare questa rotta?', active:'attiva', legs:'waypoint', arrived:'Arrivato a',
+  mute:'Silenzia', muted:'Silenziato', hidden:'nascosto',
+  share:'Trasmetti la mia posizione via LoRa', shareHint:'Se disattivato, questo nodo resta invisibile agli altri. Continua a riceverli, a dare gli allarmi e a fare da ponte per i loro pacchetti.',
+  connection:'Collegamento', netOffgrid:'Off-grid: WiFi del nodo, carte da scheda SD', netDirect:'WiFi del nodo, carte online', netBoat:'WiFi della barca (internet dal router di bordo)',
+  hintOffgrid:'Collega il telefono al WiFi del nodo. Non serve internet: le carte arrivano dalla scheda SD del nodo.',
+  hintDirect:'Collega il telefono al WiFi del nodo. Le carte le scarica il telefono, quindi gli servono i dati mobili.',
+  hintBoat:'Il nodo si collega al WiFi della barca. Collega anche il telefono al WiFi della barca e apri',
+  hintBoat2:"oppure l'indirizzo mostrato sul display del nodo. Il WiFi del nodo resta acceso come via di riserva.", hintBoat3:'Se il WiFi della barca non viene trovato, il WiFi del nodo torna da solo.',
+  boatSsid:'Nome del WiFi della barca', boatPass:'Password del WiFi della barca', passKeep:'Una password è già salvata: lascia vuoto per non cambiarla.', passNone:'Lascia vuoto per una rete aperta.',
+  iWifi:'Rete', onBoat:'sul WiFi della barca', boatLost:'WiFi della barca non raggiunto', nodeWifi:'WiFi del nodo'}
+};
+const TYPES = ['boat', 'person', 'object'];
+const $ = id => document.getElementById(id);
+let lang = 'en', cfg = {name:'', type:0, share:true, alarmRange:3, tiles:0, sound:true}, st = null, online = false;
+let ud = {wps:[], dest:null, nextId:1, routes:[], route:null, nextRouteId:1};
+const ARRIVAL_NM = 0.05; // a route waypoint counts as reached inside this distance
+const t = k => (I18N[lang] && I18N[lang][k]) || I18N.en[k] || k;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad3 = n => String(Math.round(n) % 360).padStart(3, '0');
+const fmtNm = n => n < 10 ? n.toFixed(2) : n < 100 ? n.toFixed(1) : n.toFixed(0);
+// Lists are rebuilt only when their content changes, and never while a finger is down (a tap would be lost)
+let fingerDown = false;
+document.addEventListener('pointerdown', () => { fingerDown = true; }, true);
+['pointerup', 'pointercancel'].forEach(ev => document.addEventListener(ev, () => { fingerDown = false; }, true));
+function setHtml(el, html) { if(el._html !== html) { el.innerHTML = html; el._html = html; } }
+const fmtT = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-i18n]').forEach(e => { e.textContent = t(e.dataset.i18n); });
+  buildTypes();
+  renderAll();
+}
+
+// ---------- Geometry ----------
+const R2D = 180 / Math.PI, D2R = Math.PI / 180;
+function distBrg(lat1, lon1, lat2, lon2) {
+  const dy = (lat2 - lat1) * 110540, dx = (lon2 - lon1) * 111320 * Math.cos(lat1 * D2R);
+  let b = Math.atan2(dx, dy) * R2D; if(b < 0) b += 360;
+  return {nm: Math.hypot(dx, dy) / 1852, brg: b};
+}
+const worldSize = z => 256 * Math.pow(2, z);
+const lonToX = (lon, z) => (lon + 180) / 360 * worldSize(z);
+function latToY(lat, z) { lat = Math.max(-85.0511, Math.min(85.0511, lat)); const r = lat * D2R; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * worldSize(z); }
+const xToLon = (x, z) => x / worldSize(z) * 360 - 180;
+const yToLat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / worldSize(z)))) * R2D;
+
+// ---------- Symbols: boat = arrow, person = ring with a dot, object = diamond ----------
+function drawSymbol(c, type, x, y, cog, color, s, hollow) {
+  c.save(); c.translate(x, y); c.lineWidth = 2.5; c.strokeStyle = color; c.fillStyle = hollow ? '#fff' : color; c.lineJoin = 'round';
+  if(type === 1) {
+    c.beginPath(); c.arc(0, 0, s * 0.8, 0, 7); c.fillStyle = '#fff'; c.fill(); c.stroke();
+    c.beginPath(); c.arc(0, 0, s * 0.33, 0, 7); c.fillStyle = color; c.fill();
+  } else if(type === 2) {
+    c.beginPath(); c.moveTo(0, -s); c.lineTo(s, 0); c.lineTo(0, s); c.lineTo(-s, 0); c.closePath(); c.fill(); c.stroke();
+  } else {
+    c.rotate(cog * D2R);
+    c.beginPath(); c.moveTo(0, -s * 1.25); c.lineTo(s * 0.75, s * 0.85); c.lineTo(0, s * 0.45); c.lineTo(-s * 0.75, s * 0.85); c.closePath(); c.fill(); c.stroke();
+  }
+  c.restore();
+}
+
+// ---------- Canvas helper ----------
+function fit(cv) {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if(cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return {c, w, h};
+}
+
+// ---------- Map ----------
+const map = {lat: 45, lon: 12, z: 13, follow: true, placed: false};
+try { const m = JSON.parse(localStorage.getItem('np-map') || '{}'); if(m.z) map.z = m.z; } catch(e) {}
+const tiles = new Map();
+function tileUrl(z, x, y) {
+  if(cfg.tiles === 0) return 'https://tile.openstreetmap.org/' + z + '/' + x + '/' + y + '.png';
+  if(cfg.tiles === 1) return '/tiles/' + z + '/' + x + '/' + y + '.jpg';
+  return null;
+}
+function getTile(z, x, y) {
+  const url = tileUrl(z, x, y); if(!url) return null;
+  let e = tiles.get(url);
+  if(!e) {
+    if(tiles.size > 150) tiles.delete(tiles.keys().next().value);
+    e = {img: new Image(), ok: false};
+    e.img.onload = () => { e.ok = true; drawMap(); };
+    e.img.src = url; tiles.set(url, e);
+  }
+  return e.ok ? e.img : null;
+}
+let hits = [];
+function drawMap() {
+  if(!$('pMap').classList.contains('on')) return;
+  const {c, w, h} = fit($('map')), z = map.z;
+  const cx = lonToX(map.lon, z), cy = latToY(map.lat, z), ox = Math.round(cx - w / 2), oy = Math.round(cy - h / 2);
+  const px = (lat, lon) => [lonToX(lon, z) - ox, latToY(lat, z) - oy];
+  c.fillStyle = '#9cdaef'; c.fillRect(0, 0, w, h); // same sea colour as the chart tiles, which leave open sea out
+  const n = Math.pow(2, z);
+  for(let ty = Math.floor(oy / 256); ty <= Math.floor((oy + h) / 256); ty++) {
+    if(ty < 0 || ty >= n) continue;
+    for(let tx = Math.floor(ox / 256); tx <= Math.floor((ox + w) / 256); tx++) {
+      const img = getTile(z, ((tx % n) + n) % n, ty);
+      if(img) c.drawImage(img, tx * 256 - ox, ty * 256 - oy, 256, 256);
+    }
+  }
+  // The track, under everything else: orange, with a white edge so that it shows on any chart
+  if(trkShow && trk.pts.length > 1) {
+    c.lineJoin = 'round'; c.lineCap = 'round'; c.beginPath();
+    let pen = false, lx = 0, ly = 0;
+    for(const q of trk.pts) {
+      const [x, y] = px(q[0], q[1]);
+      // Points far off the screen are skipped, and so are those less than two pixels from the last one drawn
+      if(x < -500 || y < -500 || x > w + 500 || y > h + 500) { pen = false; continue; }
+      if(!pen) { c.moveTo(x, y); pen = true; lx = x; ly = y; }
+      else if(Math.abs(x - lx) + Math.abs(y - ly) >= 2) { c.lineTo(x, y); lx = x; ly = y; }
+    }
+    c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 5; c.stroke();
+    c.strokeStyle = '#ff7a00'; c.lineWidth = 2.5; c.stroke();
+  }
+  hits = [];
+  c.font = '600 13px sans-serif'; c.textAlign = 'center';
+  const label = (s, x, y, col) => { c.lineJoin = 'round'; c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.9)'; c.strokeText(s, x, y); c.fillStyle = col; c.fillText(s, x, y); };
+  const own = st && st.own.fix ? st.own : null;
+  // Waypoints and the line to the destination
+  const dest = ud.wps.find(p => p.id === ud.dest);
+  if(own && dest) {
+    const a = px(own.lat, own.lon), b = px(dest.lat, dest.lon);
+    c.strokeStyle = '#e5383b'; c.lineWidth = 3; c.setLineDash([8, 6]); c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.setLineDash([]);
+  }
+  const ar = activeRoute();
+  if(ar) {
+    const pts = routeWps(ar).map(p => px(p.lat, p.lon));
+    c.strokeStyle = '#c026d3'; c.fillStyle = '#c026d3'; c.lineWidth = 3;
+    for(let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+      // Arrow in the middle of the leg, pointing the way to go
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2, an = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      if(Math.hypot(b[0] - a[0], b[1] - a[1]) > 40) { c.save(); c.translate(mx, my); c.rotate(an); c.beginPath(); c.moveTo(9, 0); c.lineTo(-6, -6); c.lineTo(-6, 6); c.closePath(); c.fill(); c.restore(); }
+    }
+  }
+  for(const p of ud.wps) {
+    const [x, y] = px(p.lat, p.lon); if(x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
+    const col = p.id === ud.dest ? '#e5383b' : '#7a2ea0';
+    c.strokeStyle = col; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 7, 0, 7); c.moveTo(x - 11, y); c.lineTo(x + 11, y); c.moveTo(x, y - 11); c.lineTo(x, y + 11); c.stroke();
+    label(p.name, x, y - 15, col);
+    hits.push({x, y, wp: p});
+  }
+  // Other nodes
+  if(st) for(const g of st.targets) {
+    const [x, y] = px(g.lat, g.lon); if(x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
+    const col = g.alarm ? '#e5383b' : g.stale ? '#777' : '#1456c8';
+    if(!g.stale && g.sog >= 0.3 && g.type === 0) {
+      const mpp = 156543.03392 * Math.cos(g.lat * D2R) / Math.pow(2, z), len = Math.min(70, g.sog * 0.514444 * 180 / mpp), r = g.cog * D2R;
+      c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + len * Math.sin(r), y - len * Math.cos(r)); c.stroke();
+    }
+    drawSymbol(c, g.type, x, y, g.cog, col, 11, true);
+    label(g.name, x, y + 27, col);
+    hits.push({x, y, tg: g.id});
+  }
+  // This node
+  if(own) {
+    const [x, y] = px(own.lat, own.lon);
+    drawSymbol(c, cfg.type, x, y, own.cog, '#e5383b', 13, false);
+  }
+  // Scale bar
+  const mpp = 156543.03392 * Math.cos(map.lat * D2R) / Math.pow(2, z);
+  const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
+  let nm = steps[0]; for(const s of steps) { if(s * 1852 / mpp <= 110) nm = s; }
+  const bw = nm * 1852 / mpp, bx = w - 14 - bw, by = h - 16;
+  c.strokeStyle = '#04121f'; c.lineWidth = 2; c.beginPath(); c.moveTo(bx, by - 6); c.lineTo(bx, by); c.lineTo(bx + bw, by); c.lineTo(bx + bw, by - 6); c.stroke();
+  c.textAlign = 'right'; label(nm + ' NM', w - 14, by - 10, '#04121f');
+  $('mapInfo').textContent = !st ? '' : !st.gpsBaud ? t('noGps') : !st.own.fix ? t('noFix') : 'Z' + z;
+}
+function setZoom(z) { map.z = Math.max(3, Math.min(18, z)); try { localStorage.setItem('np-map', JSON.stringify({z: map.z})); } catch(e) {} drawMap(); }
+function setFollow(on) { map.follow = on; $('follow').classList.toggle('on', on); if(on && st && st.own.fix) { map.lat = st.own.lat; map.lon = st.own.lon; } drawMap(); }
+$('zIn').onclick = () => setZoom(map.z + 1);
+$('zOut').onclick = () => setZoom(map.z - 1);
+$('follow').onclick = () => setFollow(!map.follow);
+
+// Drag to pan, pinch to zoom, tap for details, long press to add a waypoint
+(function() {
+  const cv = $('map'), pts = new Map(); let moved = false, pinch = 0, timer = 0, down = null;
+  const pos = e => { const r = cv.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; };
+  const toLL = p => { const w = cv.clientWidth, h = cv.clientHeight, z = map.z; return {lat: yToLat(latToY(map.lat, z) + p.y - h / 2, z), lon: xToLon(lonToX(map.lon, z) + p.x - w / 2, z)}; };
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId); pts.set(e.pointerId, pos(e)); moved = false; down = pos(e);
+    clearTimeout(timer);
+    if(pts.size === 1) timer = setTimeout(() => { if(!moved && pts.size === 1) { moved = true; addWaypoint(toLL(down)); } }, 650);
+    if(pts.size === 2) { const a = [...pts.values()]; pinch = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); }
+  });
+  cv.addEventListener('pointermove', e => {
+    if(!pts.has(e.pointerId)) return;
+    const p = pos(e), o = pts.get(e.pointerId); pts.set(e.pointerId, p);
+    if(pts.size === 1) {
+      if(Math.hypot(p.x - down.x, p.y - down.y) > 8) moved = true;
+      if(moved) {
+        const z = map.z; map.lon = xToLon(lonToX(map.lon, z) - (p.x - o.x), z); map.lat = yToLat(latToY(map.lat, z) - (p.y - o.y), z);
+        if(map.follow) setFollow(false); else drawMap();
+      }
+    } else if(pts.size === 2) {
+      moved = true; const a = [...pts.values()], d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+      if(pinch && d / pinch > 1.6) { setZoom(map.z + 1); pinch = d; } else if(pinch && d / pinch < 0.62) { setZoom(map.z - 1); pinch = d; }
+    }
+  });
+  const up = e => {
+    clearTimeout(timer);
+    if(pts.has(e.pointerId) && pts.size === 1 && !moved) tapAt(pos(e));
+    pts.delete(e.pointerId); pinch = 0;
+  };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', e => { clearTimeout(timer); pts.delete(e.pointerId); });
+  cv.addEventListener('wheel', e => { e.preventDefault(); setZoom(map.z + (e.deltaY < 0 ? 1 : -1)); }, {passive: false});
+})();
+function tapAt(p) {
+  let best = null, bd = 28;
+  for(const h of hits) { const d = Math.hypot(h.x - p.x, h.y - p.y); if(d < bd) { bd = d; best = h; } }
+  if(!best) { closeSheet(); return; }
+  if(best.tg) showTarget(best.tg); else showWp(best.wp.id);
+}
+
+// ---------- Details sheet ----------
+let sheetTarget = null;
+function closeSheet() { sheetTarget = null; $('sheet').classList.remove('on'); }
+function targetHtml(g) {
+  const tags = (g.relayed ? ' <span class="tag">' + t('relayed') + '</span>' : '') + (g.sim ? ' <span class="tag">' + t('simulated') + '</span>' : '') + (isQuiet(g.id) ? ' <span class="tag">' + t('quietTag') + '</span>' : '');
+  return '<div class="title">' + esc(g.name) + ' <span class="tag">' + t(TYPES[g.type]) + '</span>' + tags + '</div>' +
+    '<div class="sub">' + t('dist') + ' ' + fmtNm(g.dist) + ' NM &middot; ' + t('brg') + ' ' + pad3(g.brg) + '&deg;</div>' +
+    '<div class="sub">' + t('speed') + ' ' + g.sog.toFixed(1) + ' kn &middot; ' + t('course') + ' ' + pad3(g.cog) + '&deg;</div>' +
+    '<div class="sub">' + t('cpa') + ': ' + (g.cpaValid ? fmtNm(g.cpa) + ' NM ' + t('in') + ' ' + fmtT(g.tcpa) : t('noApproach')) + '</div>' +
+    '<div class="sub">' + t('seen') + ' ' + g.age + ' ' + t('ago') + (g.relayed ? '' : ' &middot; ' + t('signal') + ' ' + g.rssi + ' dBm') + '</div>';
+}
+function showTarget(id) {
+  const g = st && st.targets.find(x => x.id === id); if(!g) { closeSheet(); return; }
+  sheetTarget = id;
+  if(fingerDown && $('sheet').classList.contains('on')) return;
+  setHtml($('sheet'), targetHtml(g) + '<div class="row">' + (cfg.msg ? '<button class="btn" onclick="openChat(\'' + g.id + '\',\'' + esc(g.name) + '\')">' + t('message') + '</button>' : '') +
+    quietBtn(g.id) + '<button class="btn sec" onclick="closeSheet()">' + t('close') + '</button></div>');
+  $('sheet').classList.add('on');
+}
+function showWp(id) {
+  const p = ud.wps.find(x => x.id === id); if(!p) return;
+  sheetTarget = null;
+  $('sheet')._html = null;
+  $('sheet').innerHTML = '<h3>' + esc(p.name) + '</h3>' + wpSub(p) + '<div class="row">' + wpButtons(p) + '<button class="btn sec" onclick="closeSheet()">' + t('close') + '</button></div>';
+  $('sheet').classList.add('on');
+}
+
+// ---------- Waypoints (kept on the node through /api/userdata) ----------
+let udVersion = null; // nodes with a screen of their own change the waypoints too: this tells when to reload them
+function saveUd() {
+  fetch('/api/userdata', {method: 'POST', headers: {'Content-Type': 'text/plain'}, body: JSON.stringify(ud)})
+    .then(r => r.json()).then(j => { if(j && j.version !== undefined) udVersion = j.version; }).catch(() => {});
+}
+function loadUd() {
+  return fetch('/api/userdata').then(r => r.json()).then(j => {
+    if(j && Array.isArray(j.wps)) ud = {wps: j.wps, dest: j.dest || null, nextId: j.nextId || 1, routes: Array.isArray(j.routes) ? j.routes : [], route: j.route || null, nextRouteId: j.nextRouteId || 1};
+    if(j && j.version !== undefined) udVersion = j.version;
+  }).catch(() => {});
+}
+function addWaypoint(ll) {
+  const name = prompt(t('wpName'), 'WP' + ud.nextId); if(name === null) return;
+  ud.wps.push({id: ud.nextId, name: (name.trim() || 'WP' + ud.nextId).slice(0, 20), lat: ll.lat, lon: ll.lon}); ud.nextId++;
+  saveUd(); renderAll();
+}
+function wpSub(p) {
+  if(!st || !st.own.fix) return '<div class="sub">' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + '</div>';
+  const d = distBrg(st.own.lat, st.own.lon, p.lat, p.lon);
+  return '<div class="sub">' + fmtNm(d.nm) + ' NM &middot; ' + pad3(d.brg) + '&deg; &middot; ' + p.lat.toFixed(5) + ', ' + p.lon.toFixed(5) + '</div>';
+}
+function wpButtons(p) {
+  return '<button class="btn" onclick="wpGo(' + p.id + ')">' + (ud.dest === p.id ? t('stop') : t('goTo')) + '</button>';
+}
+function wpGo(id) {
+  ud.dest = ud.dest === id ? null : id;
+  // Going to a waypoint outside the followed route (or stopping) ends the route
+  const r = activeRoute(); if(r && (ud.dest === null || !r.wps.includes(ud.dest))) ud.route = null;
+  saveUd(); closeSheet(); renderAll();
+}
+function wpRename(id) { const p = ud.wps.find(x => x.id === id); const n = prompt(t('wpName'), p.name); if(n === null || !n.trim()) return; p.name = n.trim().slice(0, 20); saveUd(); renderAll(); }
+function wpDelete(id) { if(!confirm(t('delAsk'))) return; ud.wps = ud.wps.filter(x => x.id !== id); if(ud.dest === id) ud.dest = null; ud.routes.forEach(r => { r.wps = r.wps.filter(w => w !== id); }); saveUd(); renderAll(); }
+function wpShow(id) { const p = ud.wps.find(x => x.id === id); map.lat = p.lat; map.lon = p.lon; setFollow(false); showPage('pMap'); }
+function renderWp() {
+  setHtml($('wpList'), ud.wps.length ? ud.wps.map(p =>
+    '<div class="card"><div class="title">' + esc(p.name) + (ud.dest === p.id ? ' <span class="tag">' + t('dest') + '</span>' : '') + '</div>' + wpSub(p) +
+    '<div class="btns">' + wpButtons(p) + '<button class="btn sec" onclick="wpShow(' + p.id + ')">' + t('centerOn') + '</button>' +
+    '<button class="btn sec" onclick="wpRename(' + p.id + ')">' + t('rename') + '</button><button class="btn red" onclick="wpDelete(' + p.id + ')">' + t('del') + '</button></div></div>').join('')
+    : '<div class="empty">' + t('noWp') + '</div>');
+}
+$('wpHere').onclick = () => { if(st && st.own.fix) addWaypoint({lat: st.own.lat, lon: st.own.lon}); else alert(t('noFix')); };
+
+// ---------- Routes: ordered lists of waypoints; following one moves the destination from waypoint to waypoint ----------
+let editRoute = null;
+const activeRoute = () => ud.routes.find(r => r.id === ud.route) || null;
+const routeWps = r => r.wps.map(id => ud.wps.find(p => p.id === id)).filter(Boolean);
+function pathNm(pts) { let n = 0; for(let i = 1; i < pts.length; i++) n += distBrg(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon).nm; return n; }
+// Distance still to go on the followed route: to the current destination, then the legs after it
+function routeRemaining() {
+  const r = activeRoute(); if(!r || !st || !st.own.fix) return null;
+  const pts = routeWps(r), i = pts.findIndex(p => p.id === ud.dest); if(i < 0) return null;
+  return distBrg(st.own.lat, st.own.lon, pts[i].lat, pts[i].lon).nm + pathNm(pts.slice(i));
+}
+function advanceRoute() {
+  const r = activeRoute(); if(!r || !st || !st.own.fix) return;
+  const pts = routeWps(r), i = pts.findIndex(p => p.id === ud.dest);
+  if(i < 0 || distBrg(st.own.lat, st.own.lon, pts[i].lat, pts[i].lon).nm > ARRIVAL_NM) return;
+  if(i < pts.length - 1) { ud.dest = pts[i + 1].id; saveUd(); beep(1); }
+}
+function rtFollow(id) {
+  if(ud.route === id) { ud.route = null; ud.dest = null; }
+  else { const r = ud.routes.find(x => x.id === id), pts = routeWps(r); if(!pts.length) { alert(t('rtEmpty')); return; } ud.route = id; ud.dest = pts[0].id; }
+  saveUd(); renderAll();
+}
+function rtRename(id) { const r = ud.routes.find(x => x.id === id), n = prompt(t('rtName'), r.name); if(n === null || !n.trim()) return; r.name = n.trim().slice(0, 20); saveUd(); renderAll(); }
+function rtDelete(id) { if(!confirm(t('rtDelAsk'))) return; ud.routes = ud.routes.filter(x => x.id !== id); if(ud.route === id) { ud.route = null; ud.dest = null; } saveUd(); renderAll(); }
+function rtEdit(id) { editRoute = id; renderAll(); }
+function rtAdd(wp) { ud.routes.find(x => x.id === editRoute).wps.push(wp); saveUd(); renderAll(); }
+function rtRemove(i) { ud.routes.find(x => x.id === editRoute).wps.splice(i, 1); saveUd(); renderAll(); }
+function rtMove(i, d) { const w = ud.routes.find(x => x.id === editRoute).wps, j = i + d; if(j < 0 || j >= w.length) return; [w[i], w[j]] = [w[j], w[i]]; saveUd(); renderAll(); }
+function renderRoutes() {
+  const r = ud.routes.find(x => x.id === editRoute);
+  if(r) {
+    const pts = routeWps(r);
+    setHtml($('rtList'), '<div class="card"><div class="title">' + esc(r.name) + '</div><div class="sub">' + t('total') + ' ' + fmtNm(pathNm(pts)) + ' NM</div>' +
+      (pts.length ? pts.map((p, i) => '<div class="leg"><span>' + (i + 1) + '. ' + esc(p.name) + '</span><button onclick="rtMove(' + i + ',-1)">&uarr;</button><button onclick="rtMove(' + i + ',1)">&darr;</button><button onclick="rtRemove(' + i + ')">&times;</button></div>').join('') : '<div class="sub">' + t('rtEmpty') + '</div>') +
+      '<label>' + t('rtAddWp') + '</label>' + (ud.wps.length ? '<div class="chips">' + ud.wps.map(p => '<button class="btn sec" onclick="rtAdd(' + p.id + ')">+ ' + esc(p.name) + '</button>').join('') + '</div>' : '<div class="sub">' + t('rtNoWps') + '</div>') +
+      '<div class="btns"><button class="btn" onclick="rtEdit(null)">' + t('done') + '</button></div></div>');
+    return;
+  }
+  setHtml($('rtList'), ud.routes.length ? ud.routes.map(r => {
+    const pts = routeWps(r), on = ud.route === r.id, rem = on ? routeRemaining() : null;
+    return '<div class="card"><div class="title">' + esc(r.name) + (on ? ' <span class="tag">' + t('active') + '</span>' : '') + '</div>' +
+      '<div class="sub">' + pts.length + ' ' + t('legs') + ' &middot; ' + t('total') + ' ' + fmtNm(pathNm(pts)) + ' NM' + (rem !== null ? ' &middot; ' + t('remaining') + ' ' + fmtNm(rem) + ' NM' : '') + '</div>' +
+      '<div class="sub">' + pts.map(p => esc(p.name)).join(' &rarr; ') + '</div>' +
+      '<div class="btns"><button class="btn" onclick="rtFollow(' + r.id + ')">' + (on ? t('stop') : t('rtFollow')) + '</button><button class="btn sec" onclick="rtEdit(' + r.id + ')">' + t('edit') + '</button>' +
+      '<button class="btn sec" onclick="rtRename(' + r.id + ')">' + t('rename') + '</button><button class="btn red" onclick="rtDelete(' + r.id + ')">' + t('del') + '</button></div></div>';
+  }).join('') : '<div class="empty">' + t('noRoutes') + '</div>');
+}
+$('rtNew').onclick = () => {
+  const n = prompt(t('rtName'), t('route') + ' ' + ud.nextRouteId); if(n === null) return;
+  ud.routes.push({id: ud.nextRouteId, name: (n.trim() || t('route') + ' ' + ud.nextRouteId).slice(0, 20), wps: []}); editRoute = ud.nextRouteId; ud.nextRouteId++;
+  saveUd(); renderAll();
+};
+// seg: false = waypoints, true = routes, 'trk' = track
+function showSeg(seg) {
+  $('segWp').classList.toggle('on', seg === false); $('segRt').classList.toggle('on', seg === true); $('segTrk').classList.toggle('on', seg === 'trk');
+  $('wpPane').style.display = seg === false ? '' : 'none'; $('rtPane').style.display = seg === true ? '' : 'none'; $('trkPane').style.display = seg === 'trk' ? '' : 'none'; renderAll();
+}
+$('segWp').onclick = () => showSeg(false);
+$('segRt').onclick = () => showSeg(true);
+$('segTrk').onclick = () => showSeg('trk');
+
+// ---------- Track: recorded and kept by the node; here it is drawn and can be saved as a GPX file ----------
+// trk.pts holds [lat, lon, unix time] in degrees; trk.first is the index, in the node's count, of pts[0]
+const trk = {id: null, first: 0, pts: [], busy: false};
+let trkShow = true;
+try { trkShow = localStorage.getItem('trkShow') !== '0'; } catch(e) {}
+function syncTrack() {
+  const s = st && st.track;
+  if(!s || trk.busy) return;
+  if(s.id !== trk.id) { trk.id = s.id; trk.first = s.first; trk.pts = []; }
+  // The node dropped its oldest points: so do we
+  if(s.first > trk.first) { trk.pts.splice(0, s.first - trk.first); trk.first = s.first; }
+  const have = trk.first + trk.pts.length;
+  if(s.n <= have) return;
+  trk.busy = true;
+  fetch('/api/track?from=' + have).then(r => r.json()).then(j => {
+    if(j.id === trk.id && j.from === trk.first + trk.pts.length) j.points.forEach(p => trk.pts.push([p[0] / 1e6, p[1] / 1e6, p[2]]));
+    trk.busy = false; renderAll();
+  }).catch(() => { trk.busy = false; });
+}
+function trackNm() {
+  let m = 0;
+  for(let i = 1; i < trk.pts.length; i++) { const a = trk.pts[i - 1], b = trk.pts[i]; m += Math.hypot((b[0] - a[0]) * 110540, (b[1] - a[1]) * 111320 * Math.cos(a[0] * D2R)); }
+  return m / 1852;
+}
+function renderTrack() {
+  const has = !!(st && st.track);
+  $('segTrk').style.display = has ? '' : 'none';
+  if(!has || $('trkPane').style.display === 'none') return;
+  $('trkShow').checked = trkShow;
+  const n = trk.pts.length, rows = [[t('trkPoints'), String(st.track.n - st.track.first)]];
+  if(n > 1) {
+    rows.push([t('trkLength'), fmtNm(trackNm()) + ' NM']);
+    const t0 = trk.pts[0][2], t1 = trk.pts[n - 1][2];
+    if(t0) rows.push([t('trkStart'), new Date(t0 * 1000).toLocaleString(lang)]);
+    if(t0 && t1 > t0) { const m = Math.round((t1 - t0) / 60); rows.push([t('trkTime'), Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0') + ' min']); }
+  } else rows.push(['', t('trkNone')]);
+  setHtml($('trkInfo'), rows.map(r => '<span>' + esc(r[0]) + '</span><span>' + esc(r[1]) + '</span>').join(''));
+}
+$('trkShow').onchange = () => { trkShow = $('trkShow').checked; try { localStorage.setItem('trkShow', trkShow ? '1' : '0'); } catch(e) {} };
+$('trkOnMap').onclick = () => {
+  trkShow = true;
+  const n = trk.pts.length;
+  if(n) { map.lat = trk.pts[n - 1][0]; map.lon = trk.pts[n - 1][1]; map.placed = true; map.follow = false; $('follow').classList.remove('on'); }
+  showPage('pMap');
+};
+$('trkNew').onclick = () => {
+  if(!confirm(t('trackAsk'))) return;
+  fetch('/api/track/new', {method: 'POST'}).then(() => { trk.id = null; trk.pts = []; }).catch(() => {});
+};
+
+// ---------- Nearby nodes ----------
+function showOnMap(id) { const g = st.targets.find(x => x.id === id); if(!g) return; map.lat = g.lat; map.lon = g.lon; setFollow(false); showPage('pMap'); showTarget(id); }
+function renderNearby() {
+  if(!st || !st.targets.length) { setHtml($('nearbyList'), '<div class="empty">' + t('noNodes') + '</div>'); return; }
+  const list = [...st.targets].sort((a, b) => (b.alarm - a.alarm) || (a.dist - b.dist));
+  setHtml($('nearbyList'), list.map(g => '<div class="card' + (g.alarm ? ' alarm' : '') + (g.stale ? ' stale' : '') + '">' + targetHtml(g) +
+    '<div class="btns"><button class="btn sec" onclick="showOnMap(\'' + g.id + '\')">' + t('centerOn') + '</button>' +
+    (cfg.msg ? '<button class="btn" onclick="openChat(\'' + g.id + '\',\'' + esc(g.name) + '\')">' + t('message') + '</button>' : '') + quietBtn(g.id) + '</div></div>').join(''));
+}
+
+// ---------- Compass: dark face, rotating rose, fixed red bow marker, green dot for the destination ----------
+function drawCompass() {
+  if(!$('pCompass').classList.contains('on')) return;
+  const {c, w, h} = fit($('compass'));
+  c.fillStyle = '#060d18'; c.fillRect(0, 0, w, h);
+  const landscape = w > h * 1.25, side = landscape ? Math.min(h, w * 0.6) : Math.min(w, h * 0.72);
+  const R = side / 2 - 22, cx = landscape ? side / 2 : w / 2, cy = landscape ? h / 2 : side / 2 + 6;
+  const own = st ? st.own : null, hdg = own && own.cogValid ? own.cog : 0;
+  c.strokeStyle = '#cfd8e3'; c.lineWidth = 3; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.stroke();
+  for(let d = 0; d < 360; d += 10) {
+    const a = (d - hdg) * D2R, len = d % 90 === 0 ? R * 0.14 : d % 30 === 0 ? R * 0.1 : R * 0.05;
+    c.lineWidth = d % 30 === 0 ? 2.5 : 1.5; c.beginPath(); c.moveTo(cx + (R - len) * Math.sin(a), cy - (R - len) * Math.cos(a)); c.lineTo(cx + R * Math.sin(a), cy - R * Math.cos(a)); c.stroke();
+  }
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'].forEach((s, i) => {
+    const a = (i * 45 - hdg) * D2R, main = i % 2 === 0;
+    c.font = (main ? '700 ' + Math.round(R * 0.2) : '500 ' + Math.round(R * 0.11)) + 'px sans-serif';
+    c.fillStyle = i === 0 ? '#e5383b' : main ? '#fff' : '#8a97a8';
+    c.fillText(s, cx + R * 0.72 * Math.sin(a), cy - R * 0.72 * Math.cos(a));
+  });
+  const dest = ud.wps.find(p => p.id === ud.dest); let d = null;
+  if(dest && own && own.fix) {
+    d = distBrg(own.lat, own.lon, dest.lat, dest.lon);
+    const a = (d.brg - hdg) * D2R, x = cx + R * Math.sin(a), y = cy - R * Math.cos(a);
+    c.fillStyle = '#2fd16b'; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(x, y, Math.max(8, R * 0.07), 0, 7); c.fill(); c.stroke();
+  }
+  c.fillStyle = '#e5383b'; c.beginPath(); c.moveTo(cx, cy - R + R * 0.13); c.lineTo(cx - R * 0.08, cy - R - 10); c.lineTo(cx + R * 0.08, cy - R - 10); c.closePath(); c.fill();
+  const moving = own && own.moving;
+  c.fillStyle = moving ? '#fff' : '#8a97a8'; c.font = '700 ' + Math.round(R * 0.36) + 'px sans-serif';
+  c.fillText(own && own.cogValid ? pad3(hdg) + '°' : '---°', cx, cy - R * 0.04);
+  c.fillStyle = '#8a97a8'; c.font = Math.round(R * 0.1) + 'px sans-serif';
+  c.fillText(t('fromCog') + (moving ? '' : ' (' + t('stopped') + ')'), cx, cy + R * 0.22);
+  // Small data block: beside the rose in landscape, below it in portrait
+  const rows = [[t('speed'), own ? own.sog.toFixed(1) + ' kn' : '--', '#fff']];
+  const ar = activeRoute(), rem = routeRemaining();
+  if(ar) rows.push([t('route'), ar.name, '#e879f9']);
+  if(rem !== null) rows.push([t('remaining'), fmtNm(rem) + ' NM', '#e879f9']);
+  if(dest) {
+    rows.push([t('dest'), dest.name, '#2fd16b']);
+    if(d) {
+      rows.push([t('brg'), pad3(d.brg) + '°', '#2fd16b'], [t('dist'), fmtNm(d.nm) + ' NM', '#2fd16b']);
+      if(own.cogValid) { let turn = Math.round(d.brg - hdg); while(turn > 180) turn -= 360; while(turn < -180) turn += 360;
+        rows.push([t('steer'), Math.abs(turn) < 3 ? t('onCourse') : Math.abs(turn) + '° ' + (turn > 0 ? t('stbd') : t('port')), '#fff']); }
+    }
+  }
+  c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  if(landscape) {
+    let y = 30; const x = side + 8;
+    for(const r of rows) { c.fillStyle = '#8a97a8'; c.font = '13px sans-serif'; c.fillText(r[0].toUpperCase(), x, y); c.fillStyle = r[2]; c.font = '600 19px sans-serif'; c.fillText(r[1], x, y + 22); y += 50; }
+  } else {
+    const cols = 2, cw = w / cols; let i = 0;
+    for(const r of rows) { const x = 16 + (i % cols) * cw, y = side + 34 + Math.floor(i / cols) * 50;
+      c.fillStyle = '#8a97a8'; c.font = '13px sans-serif'; c.fillText(r[0].toUpperCase(), x, y); c.fillStyle = r[2]; c.font = '600 19px sans-serif'; c.fillText(r[1], x, y + 22); i++; }
+  }
+}
+
+// ---------- Alarm sound ----------
+let audio = null, lastBeep = 0;
+function unlockAudio() { if(!audio) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} } if(audio && audio.state === 'suspended') audio.resume(); }
+document.addEventListener('pointerdown', unlockAudio);
+function beep(n) {
+  if(!audio) return;
+  for(let i = 0; i < n; i++) {
+    const o = audio.createOscillator(), g = audio.createGain(), t0 = audio.currentTime + i * 0.24;
+    o.type = 'square'; o.frequency.value = 2700; g.gain.setValueAtTime(0.5, t0); g.gain.setValueAtTime(0, t0 + 0.13);
+    o.connect(g); g.connect(audio.destination); o.start(t0); o.stop(t0 + 0.14);
+  }
+  if(navigator.vibrate) navigator.vibrate([150, 100, 150, 100, 150]);
+}
+$('testSound').onclick = () => { unlockAudio(); beep(3); };
+// Silence button on the alarm banner: only for this alarm, the setting in Setup is not touched
+const mutedIds = new Set();
+$('mute').onclick = () => {
+  const alarms = st ? st.targets.filter(g => g.alarm) : [];
+  if(alarms.every(g => mutedIds.has(g.id))) mutedIds.clear(); else alarms.forEach(g => mutedIds.add(g.id));
+  // A node with a buzzer of its own quiets it too (the others just do not have this address)
+  fetch('/api/mute', {method: 'POST', body: new URLSearchParams({on: mutedIds.size ? 1 : 0})}).catch(() => {});
+  renderStatus();
+};
+
+// ---------- Status bar, alarm banner, setup info ----------
+function renderStatus() {
+  $('dot').classList.toggle('ok', !!(online && st && st.own.fix));
+  $('offline').classList.toggle('on', !online);
+  $('sHidden').style.display = cfg.share === false ? '' : 'none';
+  if(!st) return;
+  const o = st.own;
+  $('sSog').textContent = o.fix ? o.sog.toFixed(1) : '--.-';
+  $('sCog').textContent = o.cogValid ? pad3(o.cog) : '---';
+  $('sTime').textContent = o.time + ' UTC';
+  const dest = ud.wps.find(p => p.id === ud.dest);
+  if(dest && o.fix) { const d = distBrg(o.lat, o.lon, dest.lat, dest.lon); $('sDest').innerHTML = '&#9873; ' + pad3(d.brg) + '&deg; ' + fmtNm(d.nm) + ' NM'; } else $('sDest').textContent = '';
+  const alarms = st.targets.filter(g => g.alarm).sort((a, b) => a.tcpa - b.tcpa), worst = alarms[0];
+  // Temporary silence: it lasts while the silenced nodes stay in alarm; a new node in alarm sounds again
+  for(const id of [...mutedIds]) if(!alarms.some(g => g.id === id)) mutedIds.delete(id);
+  const silenced = alarms.length > 0 && alarms.every(g => mutedIds.has(g.id));
+  $('alarm').classList.toggle('on', !!worst);
+  $('alarm').classList.toggle('muted', silenced);
+  if(worst) {
+    $('alarmText').textContent = t('collision') + ': ' + worst.name + ' ' + fmtNm(worst.cpa) + ' NM ' + t('in') + ' ' + fmtT(worst.tcpa);
+    $('mute').textContent = silenced ? t('muted') : t('mute');
+    if(cfg.sound && !silenced && Date.now() - lastBeep > 3000) { lastBeep = Date.now(); beep(3); }
+  }
+}
+function renderInfo() {
+  if(!st) return;
+  const o = st.own, rows = [
+    [t('iGps'), !st.gpsBaud ? t('noGps') : (o.fix ? t('iFix') + ', ' + o.sats + ' ' + t('iSats') + ', HDOP ' + o.hdop : t('noFix')) + ' (' + st.gpsBaud + ' baud)'],
+    [t('iLora'), (st.lora.ok ? 'ok' : 'KO') + ', ' + st.lora.freq + ' MHz'],
+    ['', t('iSent') + ' ' + st.lora.tx + ', ' + t('iRecv') + ' ' + st.lora.rx + ', ' + t('iRelay') + ' ' + st.lora.relay],
+    [t('iSd'), st.sd ? t('yes') : t('no')], [t('iBat'), st.battery > 0 ? st.battery.toFixed(2) + ' V' : '-'],
+    [t('iWifi'), cfg.net === 2 ? (st.sta ? t('onBoat') + ': ' + st.staIp + ', ' + (cfg.host || '') : t('boatLost')) : t('nodeWifi')],
+    [t('iNet'), (cfg.ssid || '') + ' (' + st.apIp + ')'], [t('iId'), cfg.id || ''], [t('iVer'), cfg.version || '']];
+  $('info').innerHTML = rows.map(r => '<span>' + esc(r[0]) + '</span><span>' + esc(r[1]) + '</span>').join('');
+}
+function renderAll(fromPoll) {
+  renderStatus(); drawMap(); drawCompass();
+  if(fromPoll === true && fingerDown) return;
+  if($('pNearby').classList.contains('on')) renderNearby();
+  if($('pWp').classList.contains('on')) { renderWp(); renderRoutes(); renderTrack(); }
+  if($('pSetup').classList.contains('on')) renderInfo();
+  if(sheetTarget) showTarget(sheetTarget);
+}
+
+// ---------- Setup form ----------
+function buildTypes() {
+  $('fTypes').innerHTML = TYPES.map((k, i) => '<label class="' + (cfg.type === i ? 'on' : '') + '"><input type="radio" name="type" value="' + i + '"' + (cfg.type === i ? ' checked' : '') + '><canvas width="88" height="88"></canvas>' + t(k) + '</label>').join('');
+  $('fTypes').querySelectorAll('label').forEach((l, i) => {
+    const c = l.querySelector('canvas').getContext('2d'); c.setTransform(2, 0, 0, 2, 0, 0); drawSymbol(c, i, 22, 22, 0, '#3da5ff', 13, false);
+    l.querySelector('input').onchange = () => { cfg.type = i; buildTypes(); };
+  });
+  // Only for objects, and only on nodes that can do it
+  $('wifiOffBox').style.display = (cfg.type === 2 && cfg.wifiOff !== undefined) ? '' : 'none';
+  $('sleepBox').style.display = cfg.sleep !== undefined ? '' : 'none';
+}
+// The three connection scenarios; choosing one also picks the matching chart source
+function netChanged(setTiles) {
+  $('netBox').style.display = cfg.apOnly ? 'none' : '';
+  const n = +$('fNet').value;
+  $('boatBox').style.display = n === 2 ? '' : 'none';
+  $('netHint').textContent = n === 0 ? t('hintOffgrid') : n === 1 ? t('hintDirect') : t('hintBoat') + ' http://' + (cfg.host || 'navplotter.local') + ' ' + (cfg.oneWifi ? '. ' + t('hintBoat3') : t('hintBoat2'));
+  $('boatPassHint').textContent = cfg.staPassSet ? t('passKeep') : t('passNone');
+  if(setTiles) $('fTiles').value = n === 0 ? 1 : 0;
+}
+$('fNet').onchange = () => netChanged(true);
+function fillForm() {
+  $('fLang').value = lang; $('fName').value = cfg.name; $('fShare').checked = cfg.share !== false; $('fRange').value = cfg.alarmRange; $('fSound').checked = cfg.sound; $('fTiles').value = cfg.tiles; $('fPass').value = '';
+  $('fNet').value = cfg.net === undefined ? 1 : cfg.net; $('fStaSsid').value = cfg.staSsid || ''; $('fStaPass').value = ''; netChanged(false);
+  $('fWifiOff').value = cfg.wifiOff || 0; $('fSleep').value = cfg.sleep || 0;
+  $('fProfile').value = cfg.alarmProfile === undefined ? 1 : cfg.alarmProfile; $('fCpa').value = cfg.alarmCpa === undefined ? 0.1 : cfg.alarmCpa; $('fTcpa').value = cfg.alarmTcpa === undefined ? 5 : cfg.alarmTcpa;
+  buildTypes();
+  profileChanged();
+}
+// Collision alarm profiles: passing distance (NM) and warning time (minutes). Same table as in the firmware.
+const PROFILES = [[0.05, 2], [0.1, 5], [0.5, 10], [1, 20]];
+function profileChanged() {
+  const p = +$('fProfile').value, custom = p === 4;
+  $('customBox').style.display = custom ? '' : 'none';
+  const cpa = custom ? parseFloat($('fCpa').value.replace(',', '.')) : PROFILES[p][0], tcpa = custom ? parseInt($('fTcpa').value) : PROFILES[p][1];
+  $('profileHint').textContent = (cpa > 0 && tcpa > 0) ? t('profileHint1') + ' ' + cpa + ' NM (' + Math.round(cpa * 1852) + ' m) ' + t('profileHint2') + ' ' + tcpa + ' ' + t('profileHint3') : '';
+}
+$('fProfile').onchange = profileChanged; $('fCpa').oninput = profileChanged; $('fTcpa').oninput = profileChanged;
+$('fLang').onchange = () => { lang = $('fLang').value; applyLang(); netChanged(false); profileChanged(); };
+$('save').onclick = () => {
+  const b = new URLSearchParams({name: $('fName').value, type: cfg.type, share: $('fShare').checked ? 1 : 0, alarmRange: $('fRange').value, alarmProfile: $('fProfile').value, alarmCpa: $('fCpa').value.replace(',', '.'), alarmTcpa: $('fTcpa').value, wifiOff: $('fWifiOff').value, sleep: $('fSleep').value, lang: $('fLang').value, tiles: $('fTiles').value, sound: $('fSound').checked ? 1 : 0,
+    net: $('fNet').value, staSsid: $('fStaSsid').value});
+  if($('fStaPass').value) b.set('staPass', $('fStaPass').value);
+  if($('fPass').value) b.set('wifiPass', $('fPass').value);
+  fetch('/api/config', {method: 'POST', body: b}).then(r => r.json()).then(j => {
+    cfg = j; lang = j.lang; tiles.clear(); applyLang(); fillForm();
+    $('saved').textContent = j.restart ? t('restarting') : t('saved'); setTimeout(() => { $('saved').textContent = ''; }, j.restart ? 30000 : 2500);
+  }).catch(() => { $('saved').textContent = t('saveFail'); });
+};
+
+// ---------- Quiet nodes: collision alarm switched off for one boat (friends sailing together) ----------
+// The list is kept on the node, which is where the alarm is worked out.
+const isQuiet = id => !!(st && st.quiet && st.quiet.includes(id));
+const quietBtn = id => (st && st.quiet) ? '<button class="btn sec" onclick="toggleQuiet(\'' + id + '\')">' + t(isQuiet(id) ? 'quietOff' : 'quietOn') + '</button>' : '';
+function toggleQuiet(id) {
+  const on = !isQuiet(id);
+  if(on) st.quiet.push(id); else st.quiet = st.quiet.filter(x => x !== id);
+  fetch('/api/quiet', {method: 'POST', body: new URLSearchParams({id, on: on ? 1 : 0})}).catch(() => {});
+  renderAll();
+}
+
+// ---------- Chat: messages over LoRa, kept on the node ----------
+// A conversation is one node (by its id) or 'ALL'. The node holds the messages; this page shows them.
+let msgs = [], msgStampSeen = null, chatPeer = 'ALL', chatNames = {}, toastPeer = null, msgsLoaded = false;
+const convOf = m => m.all ? 'ALL' : m.peer;
+const chatOpen = () => $('pChat').classList.contains('on');
+function peerName(id) {
+  if(id === 'ALL') return t('everybody');
+  const g = st && st.targets.find(x => x.id === id);
+  return g ? g.name : (chatNames[id] || id);
+}
+function openChat(id, name) { if(name) chatNames[id] = name; chatPeer = id; showPage('pChat'); }
+function loadMsgs() {
+  return fetch('/api/messages').then(r => r.json()).then(j => {
+    const had = new Set(msgs.filter(m => !m.mine).map(m => m.peer + '|' + m.text + '|' + m.all));
+    msgs = j.messages || []; msgStampSeen = j.stamp;
+    msgs.forEach(m => { if(m.name) chatNames[m.peer] = m.name; });
+    // A message that was not there before: sound and a line at the top, unless that conversation is open
+    const fresh = msgs.filter(m => !m.mine && m.unread && !had.has(m.peer + '|' + m.text + '|' + m.all));
+    if(msgsLoaded && fresh.length) {
+      const m = fresh[fresh.length - 1];
+      if(!(chatOpen() && chatPeer === convOf(m))) {
+        toastPeer = convOf(m);
+        $('msgToast').textContent = t('msgFrom') + ' ' + m.name + (m.all ? ' (' + t('toAll') + ')' : '') + ': ' + m.text;
+        $('msgToast').classList.add('on');
+      }
+      if(cfg.sound !== false) beep(2);
+    }
+    msgsLoaded = true;
+    renderChat();
+  }).catch(() => {});
+}
+$('msgToast').onclick = () => { $('msgToast').classList.remove('on'); if(toastPeer) openChat(toastPeer); };
+function markRead() {
+  if(!chatOpen() || !msgs.some(m => !m.mine && m.unread && convOf(m) === chatPeer)) return;
+  msgs.forEach(m => { if(!m.mine && convOf(m) === chatPeer) m.unread = false; });
+  if(toastPeer === chatPeer) $('msgToast').classList.remove('on');
+  const b = new URLSearchParams(chatPeer === 'ALL' ? {all: 1} : {peer: chatPeer});
+  fetch('/api/messages/read', {method: 'POST', body: b}).catch(() => {});
+}
+function renderChat() {
+  const unread = {};
+  msgs.forEach(m => { if(!m.mine && m.unread) unread[convOf(m)] = (unread[convOf(m)] || 0) + 1; });
+  const total = Object.values(unread).reduce((a, b) => a + b, 0) - (chatOpen() ? (unread[chatPeer] || 0) : 0);
+  $('navBadge').style.display = total > 0 ? '' : 'none'; $('navBadge').textContent = total;
+  if(!chatOpen()) return;
+  // Who can be written to: everybody, the nodes being received (nearest first), and whoever wrote before
+  const ids = ['ALL'];
+  if(st) [...st.targets].sort((a, b) => (b.alarm - a.alarm) || (a.dist - b.dist)).forEach(g => ids.push(g.id));
+  msgs.forEach(m => { if(!m.all && !ids.includes(m.peer)) ids.push(m.peer); });
+  if(!ids.includes(chatPeer)) ids.push(chatPeer);
+  setHtml($('chatPeers'), ids.map(id => {
+    const g = st && st.targets.find(x => x.id === id);
+    return '<button data-id="' + id + '" class="' + (id === chatPeer ? 'on' : '') + (id !== 'ALL' && (!g || g.stale) ? ' gone' : '') + (g && g.alarm ? ' alarm' : '') + '">' +
+      esc(peerName(id)) + (unread[id] && id !== chatPeer ? '<b class="badge">' + unread[id] + '</b>' : '') + '</button>';
+  }).join(''));
+  $('chatPeers').querySelectorAll('button').forEach(b => { b.onclick = () => { chatPeer = b.dataset.id; renderChat(); }; });
+  const list = msgs.filter(m => convOf(m) === chatPeer);
+  const log = $('chatLog'), atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  const before = log._html;
+  setHtml(log, list.length ? list.map(m => {
+    const age = m.age < 60 ? t('now') : Math.floor(m.age / 60) + ' ' + t('minAgo');
+    if(m.mine) return '<div class="bub out' + (m.status === 5 ? ' fail' : '') + '">' + esc(m.text) + '<div class="meta">' + age + ' &middot; ' + t('st' + m.status) + (m.status >= 3 && m.status <= 4 ? ' &#10003;' + (m.status === 4 ? '&#10003;' : '') : '') + '</div></div>';
+    return '<div class="bub in">' + (chatPeer === 'ALL' ? '<div class="who">' + esc(m.name) + '</div>' : '') + esc(m.text) + '<div class="meta">' + age + '</div></div>';
+  }).join('') : '<div class="empty">' + t('msgNone') + '</div>');
+  if(log._html !== before && atEnd) log.scrollTop = log.scrollHeight;
+  const g = st && st.targets.find(x => x.id === chatPeer);
+  $('chatHint').textContent = chatPeer === 'ALL' ? t('msgHintAll') : (!g || g.stale) ? t('msgHintGone') : t('msgHintOne');
+  $('chatText').placeholder = t('msgPlaceholder');
+  markRead();
+}
+function sendChat() {
+  const text = $('chatText').value.trim();
+  if(!text) return;
+  const b = new URLSearchParams({to: chatPeer === 'ALL' ? '0' : chatPeer, name: chatPeer === 'ALL' ? '' : peerName(chatPeer), text});
+  $('chatText').value = '';
+  fetch('/api/messages', {method: 'POST', body: b}).then(() => loadMsgs()).then(() => { const log = $('chatLog'); log.scrollTop = log.scrollHeight; }).catch(() => { $('chatText').value = text; });
+}
+$('chatSend').onclick = sendChat;
+$('chatText').onkeydown = e => { if(e.key === 'Enter') { e.preventDefault(); sendChat(); } };
+
+// ---------- Pages ----------
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === id));
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.p === id));
+  if(id !== 'pMap') closeSheet();
+  renderAll();
+  if(id === 'pChat') { renderChat(); const log = $('chatLog'); log.scrollTop = log.scrollHeight; }
+}
+document.querySelectorAll('#nav button').forEach(b => { b.onclick = () => showPage(b.dataset.p); });
+window.addEventListener('resize', renderAll);
+
+// ---------- Data from the node, once a second ----------
+function poll() {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 2500);
+  fetch('/api/state', {signal: ctl.signal}).then(r => r.json()).then(j => {
+    clearTimeout(timer); st = j; online = true;
+    if(j.udVersion !== undefined && udVersion !== null && j.udVersion !== udVersion && !fingerDown) { udVersion = j.udVersion; loadUd().then(() => renderAll()); }
+    if(j.own.fix && (map.follow || !map.placed)) { map.lat = j.own.lat; map.lon = j.own.lon; map.placed = true; }
+    advanceRoute();
+    syncTrack();
+    // Messages: asked for only when the node says something changed; their ages are refreshed meanwhile
+    if(cfg.msg && j.msgStamp !== undefined) {
+      if(j.msgStamp !== msgStampSeen) loadMsgs();
+      else if(chatOpen() && !fingerDown) { msgs.forEach(m => { m.age++; }); if(document.activeElement !== $('chatText') || true) renderChat(); }
+    }
+    renderAll(true);
+  }).catch(() => { clearTimeout(timer); online = false; renderStatus(); });
+}
+Promise.all([
+  fetch('/api/config').then(r => r.json()).then(j => { cfg = j; lang = j.lang; }).catch(() => {}),
+  loadUd()
+]).then(() => { applyLang(); fillForm(); $('navChat').style.display = cfg.msg ? '' : 'none'; poll(); setInterval(poll, 1000); });
+</script>
+</body>
+</html>
