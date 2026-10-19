@@ -76,6 +76,9 @@ rosso, gli altri oggetti in giallo.
 - Per il riconoscimento serve il software Hailo di Raspberry Pi OS: `sudo apt install hailo-all`. Il modello è
   scelto da solo tra quelli in `/usr/share/hailo-models` (per l'AI HAT da 26 TOPS `yolov8s_h8.hef`).
 - Log: `journalctl -u navplotter-camera -f`.
+- **Registra** salva un fotogramma al secondo, da scaricare come zip: serve per addestrare un modello proprio.
+  Un modello proprio (`.hef` più `.json` con le classi) va in `/var/lib/navplotter/models` e ha la precedenza su
+  quelli di sistema. Come addestrarlo: [training/README.md](training/README.md).
 
 Il riconoscimento usa modelli generici (COCO): aiuta a vedere, ma **non sostituisce la guardia**.
 
