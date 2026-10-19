@@ -25,7 +25,15 @@ class GpsSource:
     def __init__(self, settings, on_fix, modem_port=None):
         self.s = settings
         self.modem_port = modem_port
-        self.on_fix = on_fix
+        # The web app shows "GPS not found" while this is 0: the port speed of a serial GPS, else the configured
+        # speed as soon as another source gives data
+        self.baud = 0
+
+        def fix(*args):
+            if not self.baud:
+                self.baud = int(self.s.get("serial_baud", 9600))
+            on_fix(*args)
+        self.on_fix = fix
         self.status = "starting"
         threading.Thread(target=self._run, name="gps", daemon=True).start()
 
@@ -55,6 +63,7 @@ class GpsSource:
                         except Exception as e2:
                             raise RuntimeError("Signal K: %s; gpsd: %s" % (e, e2))
             except Exception as e:
+                self.baud = 0
                 self.status = "%s: %s" % (kind, e)
                 # The same error every 5 s is logged once
                 if self.status != last_error:
@@ -86,6 +95,7 @@ class GpsSource:
         baud = int(self.s.get("serial_baud", 9600))
         with serial.Serial(name, baud, timeout=3) as port:
             log.info("GPS on %s", name)
+            self.baud = baud
             self.status = "GPS " + name
             nmea = Nmea()
             silent = 0

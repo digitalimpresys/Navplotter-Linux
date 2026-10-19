@@ -31,6 +31,7 @@ class Node:
         self.pos_relays = RelayQueue(4)
         self.chat = Chat(self.seen)
         self.modem = None
+        self.gps = None
         self.my_id = int(settings["id"], 16) if settings["id"] else None
         self.seq = 0
         self.transmitting = False
@@ -225,7 +226,7 @@ class Node:
                 "targets": targets,
                 "alarm": self.traffic.alarm_active, "alarmName": self.traffic.alarm_name,
                 "lora": {"ok": ready, "tx": self.tx_count, "rx": self.traffic.rx_count, "relay": self.relay_count, "freq": 869.525},
-                "gpsBaud": 0, "sd": os.path.isdir(self.s["tiles_dir"]), "battery": 0, "uptime": int(now - self.started),
+                "gpsBaud": self.gps.baud if self.gps else 0, "sd": os.path.isdir(self.s["tiles_dir"]), "battery": 0, "uptime": int(now - self.started),
                 "sta": True, "staIp": "", "apIp": "",
                 "msgStamp": self.chat.stamp(), "quiet": ["%08X" % q for q in self.traffic.quiet],
                 "track": self.track.state_json(),
