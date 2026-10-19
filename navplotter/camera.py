@@ -5,9 +5,17 @@ on 127.0.0.1; the node's web server passes /camera/... to it, so the web app rea
 
   GET  /stream.mjpg   the video (MJPEG), with the boxes of the recognised objects drawn on it
   GET  /status        JSON: camera, detector, fps, objects seen in the last frame
-  POST /settings      night=0|1 (brighter, more contrast in the dark), detect=0|1
+  POST /settings      night=0|1 (brighter, more contrast in the dark), detect=0|1, record=0|1
+  GET  /recordings                the recordings: folders of frames, one a second, to train a model of our own
+  GET  /recordings/<name>.zip     one recording as a zip of JPEG files
+  POST /recordings/delete         name=<name>
 
 Without the Hailo (or without its software) the video still works, without recognition.
+
+The model: a .hef in /var/lib/navplotter/models (a model trained by us, see training/README.md) wins over the
+models of the hailo-models package. Its classes are in a .json file with the same name:
+  {"names": ["boat", "ship", ...], "it": {"boat": "barca", ...}, "important": ["boat", "person"]}
+Without it the classes are the 80 COCO ones.
 """
 import argparse
 import glob
@@ -16,7 +24,9 @@ import logging
 import os
 import threading
 import time
+import shutil
 import urllib.parse
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 log = logging.getLogger("navplotter.camera")
@@ -34,6 +44,33 @@ LABELS_IT = {"person": "persona", "boat": "barca", "bird": "uccello", "surfboard
 # What matters at sea: drawn in red
 IMPORTANT = {"person", "boat"}
 
+DATA = "/var/lib/navplotter"
+REC_EVERY_S = 1.0           # one frame a second: enough variety for training, and not too many alike
+REC_MAX_FRAMES = 3600       # a recording stops by itself after an hour
+REC_MIN_FREE = 500 << 20    # and when less than 500 MB are left on the disk
+
+
+class Labels:
+    """Class names of the model, their Italian names and the ones that matter at sea (drawn in red)."""
+
+    def __init__(self, names=COCO, it=None, important=None):
+        self.names = list(names)
+        self.it = dict(LABELS_IT if it is None else it)
+        self.important = set(IMPORTANT if important is None else important)
+
+    @classmethod
+    def for_model(cls, hef):
+        path = os.path.splitext(hef)[0] + ".json" if hef else None
+        if not path or not os.path.exists(path):
+            return cls()
+        with open(path) as f:
+            j = json.load(f)
+        return cls(j["names"], j.get("it", {}), j.get("important", []))
+
+    def name(self, label, lang="it"):
+        return self.it.get(label, label) if lang == "it" else label
+
+
 HEF_PATHS = ["/usr/share/hailo-models/yolov8m_h8.hef", "/usr/share/hailo-models/yolov8s_h8.hef",
              "/usr/share/hailo-models/yolov11s_h8.hef", "/usr/share/hailo-models/yolov8s_h8l.hef",
              "/usr/share/hailo-models/yolov6n_h8.hef", "/usr/share/hailo-models/yolov8s.hef"]
@@ -43,8 +80,9 @@ class HailoDetector:
     """YOLO with NMS on the Hailo (the models of the hailo-models package). detect(rgb) -> [(label, score, box)],
     box as (x0, y0, x1, y1) in 0..1 of the frame."""
 
-    def __init__(self, hef):
+    def __init__(self, hef, labels=None):
         import numpy as np
+        self.labels = labels or Labels()
         from hailo_platform import VDevice, FormatType, HailoSchedulingAlgorithm
         self.np = np
         params = VDevice.create_params()
@@ -82,7 +120,7 @@ class HailoDetector:
         if isinstance(result, (list, tuple)):
             return [np.asarray(c).reshape(-1, 5) for c in result]
         flat, i, classes = np.asarray(result).reshape(-1), 0, []
-        while i < len(flat) and len(classes) < len(COCO):
+        while i < len(flat) and len(classes) < len(self.labels.names):
             n = int(flat[i])
             classes.append(flat[i + 1:i + 1 + 5 * n].reshape(-1, 5))
             i += 1 + 5 * n
@@ -92,18 +130,21 @@ class HailoDetector:
         found = []
         for cls, boxes in enumerate(self.per_class(result)):
             for y0, x0, y1, x1, score in boxes:
-                if score < min_score or cls >= len(COCO):
+                if score < min_score or cls >= len(self.labels.names):
                     continue
                 box = tuple(min(1.0, max(0.0, float(v))) for v in (
                     (x0 * self.w - px) / k / fw, (y0 * self.h - py) / k / fh,
                     (x1 * self.w - px) / k / fw, (y1 * self.h - py) / k / fh))
-                found.append((COCO[cls], float(score), box))
+                found.append((self.labels.names[cls], float(score), box))
         return found
 
 
-def find_hef(setting):
+def find_hef(setting, models_dir=DATA + "/models"):
     if setting and setting != "auto":
         return setting if os.path.exists(setting) else None
+    own = sorted(glob.glob(os.path.join(models_dir, "*.hef")), key=os.path.getmtime)
+    if own:
+        return own[-1]          # our own model, the newest one
     for p in HEF_PATHS:
         if os.path.exists(p):
             return p
@@ -132,7 +173,12 @@ class Camera:
         self.detect_on = True
         self.detector = None
         self.detector_error = None
+        self.labels = Labels()
         self.clients = 0
+        self.rec_dir = os.path.join(args.data, "recordings")
+        self.recording = None       # name of the recording in progress
+        self.rec_frames = 0
+        self.rec_last = 0.0
 
     def start(self):
         threading.Thread(target=self._run, name="camera", daemon=True).start()
@@ -154,13 +200,14 @@ class Camera:
         raise RuntimeError("no USB camera found")
 
     def _load_detector(self):
-        hef = find_hef(self.args.hef)
+        hef = find_hef(self.args.hef, os.path.join(self.args.data, "models"))
         if hef is None:
             self.detector_error = "no Hailo model (.hef) found: sudo apt install hailo-all"
             return
         try:
-            self.detector = HailoDetector(hef)
-            log.info("Hailo detector ready: %s", hef)
+            self.labels = Labels.for_model(hef)
+            self.detector = HailoDetector(hef, self.labels)
+            log.info("Hailo detector ready: %s (%d classes)", hef, len(self.labels.names))
         except Exception as e:
             self.detector_error = "Hailo: %s" % e
             log.warning("no recognition: %s", self.detector_error)
@@ -190,6 +237,8 @@ class Camera:
                 ok, frame = cap.read()
                 if not ok:
                     raise RuntimeError("the camera stopped giving frames")
+                if self.recording:
+                    self._record(cv2, frame)
                 if self.night:
                     frame = night_view(cv2, frame)
                 objects = []
@@ -200,7 +249,7 @@ class Camera:
                         self.detector_error = "Hailo: %s" % e
                         log.warning("recognition stopped: %s", e)
                         self.detector = None
-                draw(cv2, frame, objects)
+                draw(cv2, frame, objects, self.labels)
                 ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.args.quality])
                 with self.lock:
                     self.jpeg, self.objects = jpg.tobytes(), objects
@@ -212,14 +261,63 @@ class Camera:
         finally:
             cap.release()
 
+    # ---- Recordings: the frames as the camera gives them (no boxes, no night view), to label and train on ----
+
+    def start_recording(self):
+        if self.recording:
+            return
+        name = time.strftime("%Y%m%d-%H%M%S")
+        os.makedirs(os.path.join(self.rec_dir, name), exist_ok=True)
+        self.recording, self.rec_frames, self.rec_last = name, 0, 0.0
+        log.info("recording %s", name)
+
+    def stop_recording(self):
+        if self.recording:
+            log.info("recording %s stopped, %d frames", self.recording, self.rec_frames)
+        self.recording = None
+
+    def _record(self, cv2, frame):
+        now = time.monotonic()
+        if now - self.rec_last < REC_EVERY_S:
+            return
+        self.rec_last = now
+        folder = os.path.join(self.rec_dir, self.recording)
+        if self.rec_frames >= REC_MAX_FRAMES or shutil.disk_usage(self.rec_dir).free < REC_MIN_FREE:
+            self.stop_recording()
+            return
+        self.rec_frames += 1
+        cv2.imwrite(os.path.join(folder, "%s-%05d.jpg" % (self.recording, self.rec_frames)), frame,
+                    [cv2.IMWRITE_JPEG_QUALITY, 92])
+
+    def recordings(self):
+        out = []
+        if os.path.isdir(self.rec_dir):
+            for name in sorted(os.listdir(self.rec_dir), reverse=True):
+                folder = os.path.join(self.rec_dir, name)
+                if not os.path.isdir(folder):
+                    continue
+                files = [f for f in os.listdir(folder) if f.endswith(".jpg")]
+                size = sum(os.path.getsize(os.path.join(folder, f)) for f in files)
+                out.append({"name": name, "frames": len(files), "mb": round(size / 1e6, 1),
+                            "recording": name == self.recording})
+        return out
+
+    def rec_path(self, name):
+        """The folder of a recording, or None: names are only the ones we make (digits and a dash)."""
+        if not name or not all(c.isdigit() or c == "-" for c in name):
+            return None
+        folder = os.path.join(self.rec_dir, name)
+        return folder if os.path.isdir(folder) else None
+
     def status(self):
         with self.lock:
-            objs = [{"label": l, "name": LABELS_IT.get(l, l), "score": round(s, 2), "box": [round(v, 3) for v in b],
-                     "important": l in IMPORTANT} for l, s, b in self.objects]
+            objs = [{"label": l, "name": self.labels.name(l), "score": round(s, 2), "box": [round(v, 3) for v in b],
+                     "important": l in self.labels.important} for l, s, b in self.objects]
         return {"ok": self.error is None and self.jpeg is not None, "device": self.device, "error": self.error,
                 "fps": round(self.fps, 1), "night": self.night, "detect": self.detect_on,
                 "detector": self.detector.name if self.detector else None, "detectorError": self.detector_error,
-                "objects": objs}
+                "objects": objs, "record": bool(self.recording),
+                "recording": {"name": self.recording, "frames": self.rec_frames} if self.recording else None}
 
 
 def night_view(cv2, frame):
@@ -230,13 +328,13 @@ def night_view(cv2, frame):
     return cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
 
 
-def draw(cv2, frame, objects):
+def draw(cv2, frame, objects, labels):
     h, w = frame.shape[:2]
     for label, score, (x0, y0, x1, y1) in objects:
-        color = (40, 40, 255) if label in IMPORTANT else (60, 220, 255)
+        color = (40, 40, 255) if label in labels.important else (60, 220, 255)
         p0, p1 = (int(x0 * w), int(y0 * h)), (int(x1 * w), int(y1 * h))
         cv2.rectangle(frame, p0, p1, color, 2)
-        text = "%s %d%%" % (LABELS_IT.get(label, label), score * 100)
+        text = "%s %d%%" % (labels.name(label), score * 100)
         cv2.putText(frame, text, (p0[0] + 3, max(16, p0[1] - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
 
@@ -262,6 +360,10 @@ def make_handler(cam):
                 self._json(cam.status())
             elif path == "/stream.mjpg":
                 self._stream()
+            elif path == "/recordings":
+                self._json({"recordings": cam.recordings()})
+            elif path.startswith("/recordings/") and path.endswith(".zip"):
+                self._zip(path[len("/recordings/"):-4])
             elif path == "/snapshot.jpg":
                 with cam.lock:
                     jpg = cam.jpeg
@@ -279,14 +381,44 @@ def make_handler(cam):
         def do_POST(self):
             n = int(self.headers.get("Content-Length") or 0)
             form = {k: v[-1] for k, v in urllib.parse.parse_qs(self.rfile.read(n).decode() if n else "").items()}
-            if urllib.parse.urlparse(self.path).path != "/settings":
+            path = urllib.parse.urlparse(self.path).path
+            if path == "/recordings/delete":
+                folder = cam.rec_path(form.get("name"))
+                if folder and form.get("name") != cam.recording:
+                    shutil.rmtree(folder, ignore_errors=True)
+                self._json({"recordings": cam.recordings()})
+                return
+            if path != "/settings":
                 self.send_error(404)
                 return
+            if "record" in form:
+                try:
+                    cam.start_recording() if form["record"] == "1" else cam.stop_recording()
+                except OSError as e:
+                    log.warning("cannot record: %s", e)
             if "night" in form:
                 cam.night = form["night"] == "1"
             if "detect" in form:
                 cam.detect_on = form["detect"] == "1"
             self._json(cam.status())
+
+        def _zip(self, name):
+            folder = cam.rec_path(name)
+            if folder is None:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="navplotter-%s.zip"' % name)
+            self.end_headers()
+            try:
+                # JPEG files are already compressed: stored as they are, written while the zip is sent
+                with zipfile.ZipFile(self.wfile, "w", zipfile.ZIP_STORED) as z:
+                    for f in sorted(os.listdir(folder)):
+                        if f.endswith(".jpg"):
+                            z.write(os.path.join(folder, f), "%s/%s" % (name, f))
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def _stream(self):
             self.send_response(200)
@@ -321,6 +453,7 @@ def main():
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--quality", type=int, default=70)
     ap.add_argument("--min-score", type=float, default=0.4)
+    ap.add_argument("--data", default=DATA, help="folder of the recordings and of our own models")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO, format="%(levelname)s %(name)s: %(message)s")

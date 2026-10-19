@@ -37,6 +37,9 @@ main{flex:1;position:relative;overflow:hidden}
 #camBox:fullscreen #camImg,#camBox:-webkit-full-screen #camImg{max-height:100vh;height:100vh}
 #camMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9fb3c8;font-size:14px;text-align:center;padding:12px}
 #camObjs .obj{display:inline-block;margin:6px 6px 0 0;padding:4px 9px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:14px}
+#camRec.on{background:var(--red);color:#fff;border-color:var(--red)}
+#camRecs .row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+#camRecs .row span{flex:1}
 #camObjs .obj.imp{background:var(--red);color:#fff;border-color:var(--red)}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 #mapBtns{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:8px}
@@ -163,7 +166,9 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
     <section class="page" id="pCam"><div class="wrap"><h2 data-i18n="camera"></h2>
       <div id="camBox"><img id="camImg" alt=""><div id="camMsg"></div></div>
       <div id="camObjs"></div>
-      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button><button class="btn sec" id="camFull" data-i18n="camFull"></button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button><button class="btn sec" id="camFull" data-i18n="camFull"></button><button class="btn sec" id="camRec"></button></div>
+      <h3 data-i18n="camRecs" style="margin-top:16px"></h3><p class="hint" data-i18n="camRecsHint"></p>
+      <div id="camRecs"></div>
       <p class="hint" id="camInfo"></p>
     </div></section>
     <section class="page" id="pSetup"><div class="wrap"><h2 data-i18n="setup"></h2>
@@ -237,7 +242,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
 'use strict';
 // ---------- Texts: English is the reference language, Italian the first translation ----------
 const I18N = {
-en: {camera:'Camera', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
+en: {camera:'Camera', camRec:'Record', camRecOn:'Stop recording', camRecs:'Recordings', camRecsHint:'One frame a second, as the camera sees it: to train a model for the sea (training/README.md).', camRecNone:'No recordings.', camDownload:'Download', camDelete:'Delete', camFrames:'frames', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
   quietOn:'Alarm off for this boat (until power-off)', quietOff:'Alarm on again', quietTag:'alarm off',
   chat:'Chat', send:'Send', everybody:'Everybody', message:'Message', msgFrom:'Message from', msgPlaceholder:'Write a message', msgNone:'No messages yet.',
   msgHintAll:'To everybody in range: no confirmation is asked.', msgHintOne:'Repeated until the other node confirms it. You are told when it is read.', msgHintGone:'This node is not being received now: the message may not arrive.',
@@ -278,7 +283,7 @@ en: {camera:'Camera', camFull:'Full screen', camNight:'Night view', camDetect:'R
   hintBoat2:'or the address shown on the node display. The node WiFi stays on as a way back in.', hintBoat3:'If the boat WiFi is not found, the node WiFi comes back by itself.',
   boatSsid:'Boat WiFi name', boatPass:'Boat WiFi password', passKeep:'A password is stored: leave empty to keep it.', passNone:'Leave empty for an open network.',
   iWifi:'Network', onBoat:'on the boat WiFi', boatLost:'boat WiFi not reached', nodeWifi:'node WiFi'},
-it: {camera:'Telecamera', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
+it: {camera:'Telecamera', camRec:'Registra', camRecOn:'Ferma registrazione', camRecs:'Registrazioni', camRecsHint:'Un fotogramma al secondo, come lo vede la telecamera: per addestrare un modello per il mare (training/README.md).', camRecNone:'Nessuna registrazione.', camDownload:'Scarica', camDelete:'Elimina', camFrames:'fotogrammi', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
   quietOn:'Spegni allarme per questa barca (fino allo spegnimento)', quietOff:'Riattiva allarme', quietTag:'allarme spento',
   chat:'Chat', send:'Invia', everybody:'Tutti', message:'Messaggio', msgFrom:'Messaggio da', msgPlaceholder:'Scrivi un messaggio', msgNone:'Nessun messaggio.',
   msgHintAll:'A tutti quelli in portata: non viene chiesta conferma.', msgHintOne:"Ripetuto finch\u00e9 l'altro nodo non conferma. Vieni avvisato quando viene letto.", msgHintGone:'Questo nodo ora non viene ricevuto: il messaggio potrebbe non arrivare.',
@@ -995,6 +1000,7 @@ function camPage(on) {
   const img = $('camImg');
   if(!on) { img.removeAttribute('src'); return; }      // no video while the page is not shown
   camStatus().then(j => { if(j && j.ok && !img.getAttribute('src')) img.src = '/camera/stream.mjpg?' + Date.now(); });
+  loadRecs();
   camTimer = setInterval(() => camStatus().then(j => { if(j && j.ok && !img.getAttribute('src')) img.src = '/camera/stream.mjpg?' + Date.now(); }), 1000);
 }
 function renderCam() {
@@ -1008,8 +1014,22 @@ function renderCam() {
   $('camDetect').style.display = c && c.detector ? '' : 'none';
   const objs = c && c.ok && c.detector && c.detect ? c.objects : [];
   setHtml($('camObjs'), objs.length ? objs.map(o => '<span class="obj' + (o.important ? ' imp' : '') + '">' + esc(lang === 'it' ? o.name : o.label) + ' ' + Math.round(o.score * 100) + '%</span>').join('') : (c && c.detector && c.detect && c.ok ? '<p class="hint">' + t('camNone') + '</p>' : ''));
+  const rec = c && c.recording;
+  $('camRec').classList.toggle('on', !!rec);
+  $('camRec').textContent = rec ? t('camRecOn') + ' (' + rec.frames + ')' : t('camRec');
+  $('camRec').style.display = c && c.ok ? '' : 'none';
   $('camInfo').textContent = !c ? '' : [c.device, c.fps ? c.fps + ' fps' : '', c.detector ? 'Hailo ' + c.detector : t('camNoAi') + (c.detectorError ? ': ' + c.detectorError : '')].filter(Boolean).join(' · ');
 }
+let camRecsSeen = '';
+function loadRecs() {
+  fetch('/camera/recordings').then(r => r.json()).then(j => {
+    const list = j.recordings || [];
+    setHtml($('camRecs'), list.length ? list.map(r => '<div class="row"><span>' + esc(r.name) + ' · ' + r.frames + ' ' + t('camFrames') + ' · ' + r.mb + ' MB</span>' +
+      (r.recording ? '' : '<a class="btn sec" href="/camera/recordings/' + esc(r.name) + '.zip" download>' + t('camDownload') + '</a><button class="btn red" onclick="delRec(\'' + esc(r.name) + '\')">' + t('camDelete') + '</button>') + '</div>').join('') : '<p class="hint">' + t('camRecNone') + '</p>');
+  }).catch(() => {});
+}
+function delRec(name) { if(confirm(t('camDelete') + ' ' + name + '?')) fetch('/camera/recordings/delete', {method: 'POST', body: new URLSearchParams({name})}).then(() => loadRecs()); }
+$('camRec').onclick = () => fetch('/camera/settings', {method: 'POST', body: new URLSearchParams({record: cam && cam.record ? '0' : '1'})}).then(r => r.json()).then(j => { cam = j; renderCam(); loadRecs(); }).catch(() => {});
 function camSet(k) { fetch('/camera/settings', {method: 'POST', body: new URLSearchParams({[k]: cam && cam[k] ? '0' : '1'})}).then(r => r.json()).then(j => { cam = j; renderCam(); }).catch(() => {}); }
 $('camNight').onclick = () => camSet('night');
 $('camDetect').onclick = () => camSet('detect');

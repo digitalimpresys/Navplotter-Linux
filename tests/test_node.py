@@ -171,9 +171,9 @@ class Camera(unittest.TestCase):
             import numpy as np
         except ImportError:
             self.skipTest("numpy not installed")
-        from navplotter.camera import HailoDetector
+        from navplotter.camera import HailoDetector, Labels
         d = HailoDetector.__new__(HailoDetector)
-        d.np, d.w, d.h = np, 640, 640
+        d.np, d.w, d.h, d.labels = np, 640, 640, Labels()
         # 1280x720 frame letterboxed into 640x640: scale 0.5, 140 pixels of padding above and below
         k, px, py = 0.5, 0, 140
         boat = [(140 + 90) / 640, 160 / 640, (140 + 270) / 640, 480 / 640, 0.9]   # y0 x0 y1 x1 score, of the input
@@ -186,6 +186,54 @@ class Camera(unittest.TestCase):
             self.assertAlmostEqual(score, 0.9, places=5)
             for got, want in zip(box, (0.25, 0.25, 0.75, 0.75)):
                 self.assertAlmostEqual(got, want, places=4)
+
+    def test_own_model_and_its_classes(self):
+        from navplotter.camera import Labels, find_hef
+        tmp = tempfile.mkdtemp()
+        self.assertEqual(Labels.for_model(None).names[8], "boat")          # COCO without a model of our own
+        hef = os.path.join(tmp, "navplotter-mare.hef")
+        open(hef, "wb").close()
+        with open(os.path.join(tmp, "navplotter-mare.json"), "w") as f:
+            json.dump({"names": ["boat", "ship", "person", "buoy"], "it": {"buoy": "boa"}, "important": ["person"]}, f)
+        self.assertEqual(find_hef("auto", tmp), hef)
+        lab = Labels.for_model(hef)
+        self.assertEqual((lab.names[3], lab.name("buoy"), lab.important), ("buoy", "boa", {"person"}))
+
+    def test_recordings(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest("opencv not installed")
+        from types import SimpleNamespace
+        from http.server import ThreadingHTTPServer
+        import io
+        import zipfile
+        from navplotter import camera
+        tmp = tempfile.mkdtemp()
+        cam = camera.Camera(SimpleNamespace(data=tmp, device="auto", hef="auto"))
+        cam.start_recording()
+        frame = np.zeros((48, 64, 3), np.uint8)
+        for _ in range(3):
+            cam.rec_last = 0
+            cam._record(cv2, frame)
+        name = cam.recording
+        self.assertEqual(cam.status()["recording"], {"name": name, "frames": 3})
+        cam.stop_recording()
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), camera.make_handler(cam))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = "http://127.0.0.1:%d" % srv.server_address[1]
+        try:
+            recs = json.load(urllib.request.urlopen(base + "/recordings"))["recordings"]
+            self.assertEqual((recs[0]["name"], recs[0]["frames"]), (name, 3))
+            z = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(base + "/recordings/%s.zip" % name).read()))
+            self.assertEqual(len(z.namelist()), 3)
+            with self.assertRaises(urllib.error.HTTPError):
+                urllib.request.urlopen(base + "/recordings/..%2F..%2Fetc.zip")
+            urllib.request.urlopen(urllib.request.Request(base + "/recordings/delete", data=("name=" + name).encode()))
+            self.assertEqual(json.load(urllib.request.urlopen(base + "/recordings"))["recordings"], [])
+        finally:
+            srv.shutdown()
 
     def test_proxy_without_camera_service(self):
         from navplotter import web
