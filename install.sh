@@ -51,6 +51,17 @@ systemctl daemon-reload
 systemctl enable -q navplotter
 systemctl restart navplotter
 
+# The camera: only where there is a USB camera or a Hailo AI HAT, or when asked with NAVPLOTTER_CAMERA=1
+if [ "${NAVPLOTTER_CAMERA:-}" = 1 ] || ls /dev/v4l/by-id/* >/dev/null 2>&1 || [ -e /dev/hailo0 ]; then
+  echo "== Camera service (python3-opencv; recognition with the Hailo AI HAT if hailo-all is installed)"
+  apt-get install -y -qq python3-opencv python3-numpy >/dev/null
+  usermod -aG video navplotter
+  install -m 644 "$DEST/systemd/navplotter-camera.service" /etc/systemd/system/navplotter-camera.service
+  systemctl daemon-reload
+  systemctl enable -q navplotter-camera
+  systemctl restart navplotter-camera
+fi
+
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "NavPlotter is running. Web app: http://${IP:-$(hostname).local}/"

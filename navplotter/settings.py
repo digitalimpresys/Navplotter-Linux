@@ -20,6 +20,7 @@ DEFAULTS = {
     "id": "",                       # node id in hexadecimal; empty: the modem's
     "modem": "/dev/ttyUSB0",
     "http_port": 80,
+    "camera_port": 8081,            # the camera service (navplotter-camera), reached through /camera/
     "gps": {"source": "serial", "serial_port": "auto", "serial_baud": 9600, "signalk_url": "http://127.0.0.1:3000", "signalk_token": "",
             "gpsd_host": "127.0.0.1", "gpsd_port": 2947, "lat": 0.0, "lon": 0.0},
     "ais": {"enabled": False, "destinations": ["127.0.0.1:10110"], "mmsi_prefix": 999, "mmsi": {},

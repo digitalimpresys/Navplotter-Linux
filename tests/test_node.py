@@ -4,6 +4,7 @@ import os
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 
 from navplotter import ais as A
@@ -162,6 +163,42 @@ class Gps(unittest.TestCase):
         self.assertEqual(fix[2:], (0.02, 31.66, "09:27:50", 8, 1.03))
         self.assertIsNone(n.feed("$GPRMC,092750.000,A,5321.6802,N,00630.3372,W,0.02,31.66,280511,,,A*44"))  # bad checksum
         self.assertIsNone(n.feed("$GNRMC,,V,,,,,,,,,,N*4D"))                                                  # no fix yet
+
+
+class Camera(unittest.TestCase):
+    def test_hailo_nms_result(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest("numpy not installed")
+        from navplotter.camera import HailoDetector
+        d = HailoDetector.__new__(HailoDetector)
+        d.np, d.w, d.h = np, 640, 640
+        # 1280x720 frame letterboxed into 640x640: scale 0.5, 140 pixels of padding above and below
+        k, px, py = 0.5, 0, 140
+        boat = [(140 + 90) / 640, 160 / 640, (140 + 270) / 640, 480 / 640, 0.9]   # y0 x0 y1 x1 score, of the input
+        flat = [0.0] * 8 + [2.0] + boat + [0.2, 0.2, 0.3, 0.3, 0.1] + [0.0] * 71    # class 8 = boat, the second too weak
+        for result in (np.array(flat, dtype=np.float32), [np.zeros((0, 5))] * 8 + [np.array([boat, [.2, .2, .3, .3, .1]])]):
+            found = d._parse(result, 1280, 720, k, px, py, 0.4)
+            self.assertEqual(len(found), 1)
+            label, score, box = found[0]
+            self.assertEqual(label, "boat")
+            self.assertAlmostEqual(score, 0.9, places=5)
+            for got, want in zip(box, (0.25, 0.25, 0.75, 0.75)):
+                self.assertAlmostEqual(got, want, places=4)
+
+    def test_proxy_without_camera_service(self):
+        from navplotter import web
+        tmp = tempfile.mkdtemp()
+        node, clock = make_node(tmp)
+        node.s["camera_port"] = 9          # nothing listens there
+        server = web.start(node, os.path.join(ROOT, "web"), 0)
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen("http://127.0.0.1:%d/camera/status" % server.server_address[1])
+            self.assertEqual(e.exception.code, 503)
+        finally:
+            server.shutdown()
 
 
 class NodeTraffic(unittest.TestCase):
