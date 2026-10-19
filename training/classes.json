@@ -8,7 +8,7 @@
              "row boats", "fishing boat", "jetski", "jet ski", "kayak", "canoe", "paddle board", "sup", "vessel",
              "small boat", "barca"],
     "ship": ["ship", "ships", "cargo", "cargo ship", "container ship", "tanker", "ferry", "cruise ship",
-             "warship", "tug", "large boat", "nave"],
+             "warship", "civilianship", "civilian ship", "military ship", "tug", "large boat", "nave"],
     "sailboat": ["sailboat", "sail boat", "sailing boat", "yacht", "sailing yacht", "catamaran", "barca a vela"],
     "person": ["person", "people", "swimmer", "swimmers", "human", "man overboard", "persona"],
     "buoy": ["buoy", "buoys", "marker", "navigation buoy", "mooring buoy", "life_saving_appliances",
