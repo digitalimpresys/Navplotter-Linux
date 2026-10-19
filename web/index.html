@@ -32,7 +32,9 @@ main{flex:1;position:relative;overflow:hidden}
 .page.on{display:block}
 #pMap,#pCompass{overflow:hidden}
 #camBox{position:relative;background:#000;border-radius:10px;overflow:hidden;min-height:120px}
-#camImg{display:block;width:100%}
+#pCam .wrap{max-width:none}
+#camImg{display:block;width:100%;max-height:calc(100vh - 230px);object-fit:contain;margin:0 auto}
+#camBox:fullscreen #camImg,#camBox:-webkit-full-screen #camImg{max-height:100vh;height:100vh}
 #camMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9fb3c8;font-size:14px;text-align:center;padding:12px}
 #camObjs .obj{display:inline-block;margin:6px 6px 0 0;padding:4px 9px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:14px}
 #camObjs .obj.imp{background:var(--red);color:#fff;border-color:var(--red)}
@@ -161,7 +163,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
     <section class="page" id="pCam"><div class="wrap"><h2 data-i18n="camera"></h2>
       <div id="camBox"><img id="camImg" alt=""><div id="camMsg"></div></div>
       <div id="camObjs"></div>
-      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button><button class="btn sec" id="camFull" data-i18n="camFull"></button></div>
       <p class="hint" id="camInfo"></p>
     </div></section>
     <section class="page" id="pSetup"><div class="wrap"><h2 data-i18n="setup"></h2>
@@ -235,7 +237,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
 'use strict';
 // ---------- Texts: English is the reference language, Italian the first translation ----------
 const I18N = {
-en: {camera:'Camera', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
+en: {camera:'Camera', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
   quietOn:'Alarm off for this boat (until power-off)', quietOff:'Alarm on again', quietTag:'alarm off',
   chat:'Chat', send:'Send', everybody:'Everybody', message:'Message', msgFrom:'Message from', msgPlaceholder:'Write a message', msgNone:'No messages yet.',
   msgHintAll:'To everybody in range: no confirmation is asked.', msgHintOne:'Repeated until the other node confirms it. You are told when it is read.', msgHintGone:'This node is not being received now: the message may not arrive.',
@@ -276,7 +278,7 @@ en: {camera:'Camera', camNight:'Night view', camDetect:'Recognition', camOff:'Ca
   hintBoat2:'or the address shown on the node display. The node WiFi stays on as a way back in.', hintBoat3:'If the boat WiFi is not found, the node WiFi comes back by itself.',
   boatSsid:'Boat WiFi name', boatPass:'Boat WiFi password', passKeep:'A password is stored: leave empty to keep it.', passNone:'Leave empty for an open network.',
   iWifi:'Network', onBoat:'on the boat WiFi', boatLost:'boat WiFi not reached', nodeWifi:'node WiFi'},
-it: {camera:'Telecamera', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
+it: {camera:'Telecamera', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
   quietOn:'Spegni allarme per questa barca (fino allo spegnimento)', quietOff:'Riattiva allarme', quietTag:'allarme spento',
   chat:'Chat', send:'Invia', everybody:'Tutti', message:'Messaggio', msgFrom:'Messaggio da', msgPlaceholder:'Scrivi un messaggio', msgNone:'Nessun messaggio.',
   msgHintAll:'A tutti quelli in portata: non viene chiesta conferma.', msgHintOne:"Ripetuto finch\u00e9 l'altro nodo non conferma. Vieni avvisato quando viene letto.", msgHintGone:'Questo nodo ora non viene ricevuto: il messaggio potrebbe non arrivare.',
@@ -1011,6 +1013,13 @@ function renderCam() {
 function camSet(k) { fetch('/camera/settings', {method: 'POST', body: new URLSearchParams({[k]: cam && cam[k] ? '0' : '1'})}).then(r => r.json()).then(j => { cam = j; renderCam(); }).catch(() => {}); }
 $('camNight').onclick = () => camSet('night');
 $('camDetect').onclick = () => camSet('detect');
+function camFull() {
+  const box = $('camBox'), fs = document.fullscreenElement || document.webkitFullscreenElement;
+  if(fs) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  else (box.requestFullscreen || box.webkitRequestFullscreen || (() => {})).call(box);
+}
+$('camFull').onclick = camFull;
+$('camImg').ondblclick = camFull;
 
 // ---------- Pages ----------
 function showPage(id) {
