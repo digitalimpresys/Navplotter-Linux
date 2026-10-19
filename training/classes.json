@@ -1,0 +1,19 @@
+{
+  "names": ["boat", "ship", "sailboat", "person", "buoy", "obstacle"],
+  "it": {"boat": "barca", "ship": "nave", "sailboat": "barca a vela", "person": "persona",
+         "buoy": "boa", "obstacle": "ostacolo"},
+  "important": ["person", "buoy", "obstacle"],
+  "synonyms": {
+    "boat": ["boat", "boats", "motorboat", "motor boat", "speedboat", "rib", "dinghy", "rowboat", "row boat",
+             "row boats", "fishing boat", "jetski", "jet ski", "kayak", "canoe", "paddle board", "sup", "vessel",
+             "small boat", "barca"],
+    "ship": ["ship", "ships", "cargo", "cargo ship", "container ship", "tanker", "ferry", "cruise ship",
+             "warship", "tug", "large boat", "nave"],
+    "sailboat": ["sailboat", "sail boat", "sailing boat", "yacht", "sailing yacht", "catamaran", "barca a vela"],
+    "person": ["person", "people", "swimmer", "swimmers", "human", "man overboard", "persona"],
+    "buoy": ["buoy", "buoys", "marker", "navigation buoy", "mooring buoy", "life_saving_appliances",
+             "life saving appliances", "lifebuoy", "life buoy", "boa"],
+    "obstacle": ["obstacle", "float", "floating object", "debris", "log", "container", "fishing net",
+                 "other", "ostacolo"]
+  }
+}
