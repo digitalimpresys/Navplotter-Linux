@@ -1,10 +1,14 @@
-"""Our own position: from Signal K, from gpsd, or a fixed one from the settings.
+"""Our own position: from a USB GPS, from Signal K, from gpsd, or a fixed one from the settings.
 
-"none" (the default): no position of our own; the node still receives, relays and shows the others.
+"serial" (the default): a GPS on a USB or serial port that sends NMEA (G-Mouse, u-blox and the like). With
+port "auto" the first serial device that is not the modem is used; without one there is no position.
+"none": no position of our own; the node still receives, relays and shows the others.
 "auto" tries Signal K first (the boat GPS, already on the boat network) and then gpsd.
 """
+import glob
 import json
 import logging
+import os
 import math
 import socket
 import threading
@@ -18,8 +22,9 @@ MS_TO_KN = 1.0 / 0.514444
 class GpsSource:
     """Runs in its own thread and calls on_fix(lat, lon, sog_kn, cog_deg_or_None, utc, sats, hdop, source)."""
 
-    def __init__(self, settings, on_fix):
+    def __init__(self, settings, on_fix, modem_port=None):
         self.s = settings
+        self.modem_port = modem_port
         self.on_fix = on_fix
         self.status = "starting"
         threading.Thread(target=self._run, name="gps", daemon=True).start()
@@ -34,6 +39,8 @@ class GpsSource:
             try:
                 if kind == "fixed":
                     self._fixed()
+                elif kind == "serial":
+                    self._serial()
                 elif kind == "signalk":
                     self._signalk()
                 elif kind == "gpsd":
@@ -54,6 +61,45 @@ class GpsSource:
                     log.warning("no position (%s)", self.status)
                     last_error = self.status
             time.sleep(5)
+
+    def _find_serial(self):
+        port = self.s.get("serial_port", "auto")
+        if port != "auto":
+            return port
+        modem = os.path.realpath(self.modem_port) if self.modem_port else None
+        found = []
+        for p in sorted(glob.glob("/dev/serial/by-id/*")):
+            if "CP210" in p or os.path.realpath(p) == modem:
+                continue        # the Heltec modem
+            gps_like = any(k in p.lower() for k in ("u-blox", "gps", "gnss"))
+            found.append((not gps_like, p))
+        for p in sorted(glob.glob("/dev/ttyACM*")):
+            if os.path.realpath(p) != modem and all(os.path.realpath(f) != p for _, f in found):
+                found.append((True, p))
+        if not found:
+            raise RuntimeError("no USB GPS plugged in")
+        return sorted(found)[0][1]
+
+    def _serial(self):
+        import serial
+        name = self._find_serial()
+        baud = int(self.s.get("serial_baud", 9600))
+        with serial.Serial(name, baud, timeout=3) as port:
+            log.info("GPS on %s", name)
+            self.status = "GPS " + name
+            nmea = Nmea()
+            silent = 0
+            while True:
+                line = port.readline()
+                if not line:
+                    silent += 1
+                    if silent >= 5:
+                        raise RuntimeError("no data from the GPS on %s" % name)
+                    continue
+                silent = 0
+                fix = nmea.feed(line.decode("ascii", "replace").strip())
+                if fix:
+                    self.on_fix(*fix, "serial")
 
     def _fixed(self):
         self.status = "fixed"
@@ -112,3 +158,56 @@ class GpsSource:
                         t = msg.get("time", "")
                         self.on_fix(msg["lat"], msg["lon"], msg.get("speed", 0.0) * MS_TO_KN, msg.get("track"),
                                     t[11:19] if len(t) >= 19 else None, sats, hdop, "gpsd")
+
+
+def _nmea_ok(line):
+    """True if the line is an NMEA sentence with a right checksum (or none)."""
+    if not line.startswith("$"):
+        return False
+    body, _, ck = line[1:].partition("*")
+    if not ck:
+        return True
+    x = 0
+    for c in body:
+        x ^= ord(c)
+    try:
+        return x == int(ck[:2], 16)
+    except ValueError:
+        return False
+
+
+def _deg(value, hemi):
+    if not value:
+        return None
+    d = value.index(".") - 2
+    deg = float(value[:d]) + float(value[d:]) / 60.0
+    return -deg if hemi in ("S", "W") else deg
+
+
+class Nmea:
+    """Reads RMC (position, speed, course, time) and GGA (satellites, HDOP) from any talker (GP, GN, GL...)."""
+
+    def __init__(self):
+        self.sats, self.hdop = 0, 99.9
+
+    def feed(self, line):
+        """One line; returns (lat, lon, sog_kn, cog_or_None, utc, sats, hdop) for a valid RMC, else None."""
+        if not _nmea_ok(line):
+            return None
+        f = line[1:].split("*")[0].split(",")
+        kind = f[0][2:]
+        try:
+            if kind == "GGA" and len(f) > 8:
+                if f[6] and f[6] != "0":
+                    self.sats = int(f[7] or 0)
+                    self.hdop = float(f[8] or 99.9)
+            elif kind == "RMC" and len(f) > 8 and f[2] == "A":
+                lat, lon = _deg(f[3], f[4]), _deg(f[5], f[6])
+                if lat is None or lon is None:
+                    return None
+                t = f[1]
+                utc = "%s:%s:%s" % (t[0:2], t[2:4], t[4:6]) if len(t) >= 6 else None
+                return lat, lon, float(f[7] or 0.0), float(f[8]) if f[8] else None, utc, self.sats, self.hdop
+        except ValueError:
+            return None
+        return None

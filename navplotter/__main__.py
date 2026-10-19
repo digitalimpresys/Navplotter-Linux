@@ -27,7 +27,7 @@ def main():
     node = Node(settings)
     node.modem = Modem(settings["modem"], node.on_packet, node.on_tx_done, node.on_modem_ready)
     node.modem.start()
-    GpsSource(settings["gps"], node.on_fix)
+    GpsSource(settings["gps"], node.on_fix, settings["modem"])
     web.start(node, args.web, settings["http_port"])
     logging.getLogger("navplotter").info("NavPlotter Linux %s started", VERSION)
     while True:
