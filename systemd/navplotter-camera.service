@@ -1,0 +1,15 @@
+[Unit]
+Description=NavPlotter camera (USB camera, object recognition with the Hailo AI HAT)
+After=network-online.target
+
+[Service]
+User=navplotter
+Group=navplotter
+SupplementaryGroups=video
+WorkingDirectory=/opt/navplotter
+ExecStart=/usr/bin/python3 -m navplotter.camera
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

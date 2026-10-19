@@ -65,6 +65,20 @@ Il nodo invia frasi `!AIVDM` (tipo 18 per la posizione, tipo 24 per nome e tipo)
 Senza MMSI configurato, ogni barca riceve un MMSI finto `999xxxxxx` ricavato dall'id: non è un MMSI reale e va
 usato solo a bordo.
 
+## Telecamera e riconoscimento oggetti (facoltativo)
+
+Con una telecamera USB, la web app ha una voce **Telecamera** con il video dal vivo, una vista notturna (più
+luminosa e con più contrasto) e, con l'AI HAT Hailo, i riquadri degli oggetti riconosciuti: barche e persone in
+rosso, gli altri oggetti in giallo.
+
+- Il servizio `navplotter-camera` viene installato da solo se c'è una telecamera USB o un Hailo; altrimenti
+  `NAVPLOTTER_CAMERA=1` prima del comando di installazione.
+- Per il riconoscimento serve il software Hailo di Raspberry Pi OS: `sudo apt install hailo-all`. Il modello è
+  scelto da solo tra quelli in `/usr/share/hailo-models` (per l'AI HAT da 26 TOPS `yolov8s_h8.hef`).
+- Log: `journalctl -u navplotter-camera -f`.
+
+Il riconoscimento usa modelli generici (COCO): aiuta a vedere, ma **non sostituisce la guardia**.
+
 ## App Android
 
 L'API JSON è la stessa dei nodi (`/api/state`, `/api/config`, `/api/messages`...) e risponde anche alle richieste

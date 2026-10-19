@@ -8,7 +8,9 @@ import logging
 import os
 import socket
 import threading
+import urllib.error
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 log = logging.getLogger("navplotter.web")
@@ -60,6 +62,30 @@ def make_handler(node, web_dir):
                 form.update({k: v[-1] for k, v in urllib.parse.parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True).items()})
             return form
 
+        def _camera(self, path, body=None):
+            """/camera/... goes to the camera service (python3 -m navplotter.camera), the video streamed as it comes."""
+            url = "http://127.0.0.1:%d/%s" % (node.s["camera_port"], path[len("/camera/"):])
+            try:
+                r = urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=10)
+            except (urllib.error.URLError, OSError):
+                self._send(503, {"ok": False, "error": "camera service not running"})
+                return
+            with r:
+                self.send_response(r.status)
+                for k in ("Content-Type", "Content-Length", "Cache-Control"):
+                    if r.headers.get(k):
+                        self.send_header(k, r.headers[k])
+                self._cors()
+                self.end_headers()
+                try:
+                    while True:
+                        chunk = r.read1(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass
+
         def do_OPTIONS(self):
             self.send_response(204)
             self._cors()
@@ -68,7 +94,9 @@ def make_handler(node, web_dir):
         def do_GET(self):
             url = urllib.parse.urlparse(self.path)
             path = url.path
-            if path == "/":
+            if path.startswith("/camera/"):
+                self._camera(path)
+            elif path == "/":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Encoding", "gzip")
@@ -110,7 +138,9 @@ def make_handler(node, web_dir):
         def do_POST(self):
             path = urllib.parse.urlparse(self.path).path
             body = self._body()
-            if path == "/api/config":
+            if path.startswith("/camera/"):
+                self._camera(path, body)
+            elif path == "/api/config":
                 node.apply_config(self._form(body))
                 reply = node.config_json(host)
                 reply["restart"] = False

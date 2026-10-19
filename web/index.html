@@ -31,6 +31,11 @@ main{flex:1;position:relative;overflow:hidden}
 .page{position:absolute;inset:0;display:none;overflow:auto;-webkit-overflow-scrolling:touch}
 .page.on{display:block}
 #pMap,#pCompass{overflow:hidden}
+#camBox{position:relative;background:#000;border-radius:10px;overflow:hidden;min-height:120px}
+#camImg{display:block;width:100%}
+#camMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9fb3c8;font-size:14px;text-align:center;padding:12px}
+#camObjs .obj{display:inline-block;margin:6px 6px 0 0;padding:4px 9px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:14px}
+#camObjs .obj.imp{background:var(--red);color:#fff;border-color:var(--red)}
 canvas{display:block;width:100%;height:100%;touch-action:none}
 #mapBtns{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:8px}
 #mapBtns button{width:46px;height:46px;border-radius:10px;border:1px solid var(--line);background:rgba(18,41,74,.92);color:var(--text);font-size:24px;font-weight:700}
@@ -54,6 +59,7 @@ h2{margin:6px 0 12px;font-size:20px}
 .tag{font-size:11px;font-weight:400;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--dim)}
 .btn{background:var(--accent);color:#04121f;border:0;border-radius:9px;padding:10px 14px;font-size:15px;font-weight:700}
 .btn.sec{background:none;color:var(--text);border:1px solid var(--line)}
+.btn.sec.on{background:var(--accent);color:#04121f;border-color:var(--accent)}
 .btn.red{background:var(--red);color:#fff}
 .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 label{display:block;margin:14px 0 6px;color:var(--dim);font-size:14px}
@@ -152,6 +158,12 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
         <div class="btns" style="margin:0 0 12px"><button class="btn" id="rtNew" data-i18n="rtNew"></button></div>
         <div id="rtList"></div>
       </div></div></section>
+    <section class="page" id="pCam"><div class="wrap"><h2 data-i18n="camera"></h2>
+      <div id="camBox"><img id="camImg" alt=""><div id="camMsg"></div></div>
+      <div id="camObjs"></div>
+      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button></div>
+      <p class="hint" id="camInfo"></p>
+    </div></section>
     <section class="page" id="pSetup"><div class="wrap"><h2 data-i18n="setup"></h2>
       <div class="card">
         <label data-i18n="language"></label>
@@ -215,6 +227,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
     <button data-p="pNearby"><i>&#9678;</i><span data-i18n="nearby"></span></button>
     <button data-p="pChat" id="navChat" style="display:none"><i>&#9993;</i><span data-i18n="chat"></span><b class="badge" id="navBadge" style="display:none"></b></button>
     <button data-p="pWp"><i>&#9873;</i><span data-i18n="waypoints"></span></button>
+    <button data-p="pCam" id="navCam" style="display:none"><i>&#9673;</i><span data-i18n="camera"></span></button>
     <button data-p="pSetup"><i>&#9881;</i><span data-i18n="setup"></span></button>
   </nav>
 </div>
@@ -222,7 +235,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
 'use strict';
 // ---------- Texts: English is the reference language, Italian the first translation ----------
 const I18N = {
-en: {map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
+en: {camera:'Camera', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
   quietOn:'Alarm off for this boat (until power-off)', quietOff:'Alarm on again', quietTag:'alarm off',
   chat:'Chat', send:'Send', everybody:'Everybody', message:'Message', msgFrom:'Message from', msgPlaceholder:'Write a message', msgNone:'No messages yet.',
   msgHintAll:'To everybody in range: no confirmation is asked.', msgHintOne:'Repeated until the other node confirms it. You are told when it is read.', msgHintGone:'This node is not being received now: the message may not arrive.',
@@ -263,7 +276,7 @@ en: {map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup
   hintBoat2:'or the address shown on the node display. The node WiFi stays on as a way back in.', hintBoat3:'If the boat WiFi is not found, the node WiFi comes back by itself.',
   boatSsid:'Boat WiFi name', boatPass:'Boat WiFi password', passKeep:'A password is stored: leave empty to keep it.', passNone:'Leave empty for an open network.',
   iWifi:'Network', onBoat:'on the boat WiFi', boatLost:'boat WiFi not reached', nodeWifi:'node WiFi'},
-it: {map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
+it: {camera:'Telecamera', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
   quietOn:'Spegni allarme per questa barca (fino allo spegnimento)', quietOff:'Riattiva allarme', quietTag:'allarme spento',
   chat:'Chat', send:'Invia', everybody:'Tutti', message:'Messaggio', msgFrom:'Messaggio da', msgPlaceholder:'Scrivi un messaggio', msgNone:'Nessun messaggio.',
   msgHintAll:'A tutti quelli in portata: non viene chiesta conferma.', msgHintOne:"Ripetuto finch\u00e9 l'altro nodo non conferma. Vieni avvisato quando viene letto.", msgHintGone:'Questo nodo ora non viene ricevuto: il messaggio potrebbe non arrivare.',
@@ -970,12 +983,42 @@ function sendChat() {
 $('chatSend').onclick = sendChat;
 $('chatText').onkeydown = e => { if(e.key === 'Enter') { e.preventDefault(); sendChat(); } };
 
+// ---------- Camera (Raspberry Pi with the navplotter-camera service) ----------
+let cam = null, camTimer = null;
+function camStatus() {
+  return fetch('/camera/status').then(r => r.ok ? r.json() : null).then(j => { cam = j; renderCam(); return j; }).catch(() => { cam = null; renderCam(); });
+}
+function camPage(on) {
+  clearInterval(camTimer); camTimer = null;
+  const img = $('camImg');
+  if(!on) { img.removeAttribute('src'); return; }      // no video while the page is not shown
+  camStatus().then(j => { if(j && j.ok && !img.getAttribute('src')) img.src = '/camera/stream.mjpg?' + Date.now(); });
+  camTimer = setInterval(() => camStatus().then(j => { if(j && j.ok && !img.getAttribute('src')) img.src = '/camera/stream.mjpg?' + Date.now(); }), 1000);
+}
+function renderCam() {
+  if(!$('pCam').classList.contains('on')) return;
+  const c = cam;
+  $('camMsg').textContent = !c ? t('camOff') : !c.ok ? (c.error && c.error !== 'starting' ? t('camOff') + ' (' + c.error + ')' : t('camStarting')) : '';
+  $('camMsg').style.display = c && c.ok ? 'none' : 'flex';
+  if(!c || !c.ok) $('camImg').removeAttribute('src');
+  $('camNight').classList.toggle('on', !!(c && c.night));
+  $('camDetect').classList.toggle('on', !!(c && c.detect && c.detector));
+  $('camDetect').style.display = c && c.detector ? '' : 'none';
+  const objs = c && c.ok && c.detector && c.detect ? c.objects : [];
+  setHtml($('camObjs'), objs.length ? objs.map(o => '<span class="obj' + (o.important ? ' imp' : '') + '">' + esc(lang === 'it' ? o.name : o.label) + ' ' + Math.round(o.score * 100) + '%</span>').join('') : (c && c.detector && c.detect && c.ok ? '<p class="hint">' + t('camNone') + '</p>' : ''));
+  $('camInfo').textContent = !c ? '' : [c.device, c.fps ? c.fps + ' fps' : '', c.detector ? 'Hailo ' + c.detector : t('camNoAi') + (c.detectorError ? ': ' + c.detectorError : '')].filter(Boolean).join(' · ');
+}
+function camSet(k) { fetch('/camera/settings', {method: 'POST', body: new URLSearchParams({[k]: cam && cam[k] ? '0' : '1'})}).then(r => r.json()).then(j => { cam = j; renderCam(); }).catch(() => {}); }
+$('camNight').onclick = () => camSet('night');
+$('camDetect').onclick = () => camSet('detect');
+
 // ---------- Pages ----------
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === id));
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.p === id));
   if(id !== 'pMap') closeSheet();
   renderAll();
+  camPage(id === 'pCam');
   if(id === 'pChat') { renderChat(); const log = $('chatLog'); log.scrollTop = log.scrollHeight; }
 }
 document.querySelectorAll('#nav button').forEach(b => { b.onclick = () => showPage(b.dataset.p); });
@@ -1001,7 +1044,7 @@ function poll() {
 Promise.all([
   fetch('/api/config').then(r => r.json()).then(j => { cfg = j; lang = j.lang; }).catch(() => {}),
   loadUd()
-]).then(() => { applyLang(); fillForm(); $('navChat').style.display = cfg.msg ? '' : 'none'; poll(); setInterval(poll, 1000); });
+]).then(() => { applyLang(); fillForm(); $('navChat').style.display = cfg.msg ? '' : 'none'; camStatus().then(j => { $('navCam').style.display = j ? '' : 'none'; }); poll(); setInterval(poll, 1000); });
 </script>
 </body>
 </html>
