@@ -151,6 +151,19 @@ class Ais(unittest.TestCase):
         self.assertEqual(decode(b).ship_type, 37)
 
 
+class Gps(unittest.TestCase):
+    def test_nmea(self):
+        from navplotter.gps import Nmea
+        n = Nmea()
+        self.assertIsNone(n.feed("$GPGGA,092750.000,5321.6802,N,00630.3372,W,1,8,1.03,61.7,M,55.2,M,,*76"))
+        fix = n.feed("$GPRMC,092750.000,A,5321.6802,N,00630.3372,W,0.02,31.66,280511,,,A*43")
+        self.assertAlmostEqual(fix[0], 53.36134, places=5)
+        self.assertAlmostEqual(fix[1], -6.50562, places=5)
+        self.assertEqual(fix[2:], (0.02, 31.66, "09:27:50", 8, 1.03))
+        self.assertIsNone(n.feed("$GPRMC,092750.000,A,5321.6802,N,00630.3372,W,0.02,31.66,280511,,,A*44"))  # bad checksum
+        self.assertIsNone(n.feed("$GNRMC,,V,,,,,,,,,,N*4D"))                                                  # no fix yet
+
+
 class NodeTraffic(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -200,6 +213,7 @@ class Web(unittest.TestCase):
             state = json.load(urllib.request.urlopen(base + "/api/state"))
             self.assertEqual(state["targets"][0]["name"], "Gejsha")
             self.assertIn("msgStamp", state)
+            self.assertEqual(state["gpsBaud"], 0)               # no GPS: the web app says "GPS not found"
             req = urllib.request.Request(base + "/api/config", data=b"name=Barca%20Uno&alarmRange=6&type=9", method="POST")
             cfg = json.load(urllib.request.urlopen(req))
             self.assertEqual((cfg["name"], cfg["alarmRange"], cfg["type"]), ("Barca Uno", 6, 0))
