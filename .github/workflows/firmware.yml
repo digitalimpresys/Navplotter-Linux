@@ -15,7 +15,7 @@ jobs:
           python-version: "3.12"
       - name: Install PlatformIO
         run: pip install platformio pyserial
-      - name: Build Heltec V2 modem
+      - name: Build Heltec V2 and V4 modems
         run: pio run -d firmware/heltec-modem
       # One image written at address 0, as the NavPlotter web flasher wants it
       - name: Merge the image for the web flasher
@@ -29,5 +29,16 @@ jobs:
         with:
           name: heltec-v2-modem
           path: heltec-v2-modem.bin
+      - name: Merge the V4 image for the web flasher
+        run: |
+          B=firmware/heltec-modem/.pio/build/heltec_wifi_lora_32_V4
+          python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 merge_bin -o heltec-v4-modem.bin \
+            0x0 $B/bootloader.bin 0x8000 $B/partitions.bin \
+            0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 $B/firmware.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: heltec-v4-modem
+          path: heltec-v4-modem.bin
       - name: Check the test tool
         run: python -m py_compile tools/modem_test.py

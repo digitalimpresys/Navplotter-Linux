@@ -25,7 +25,8 @@ def main():
     if not os.path.exists(args.settings):
         settings.save()     # so that there is a file to edit
     node = Node(settings)
-    node.modem = Modem(settings["modem"], node.on_packet, node.on_tx_done, node.on_modem_ready)
+    node.modem = Modem(settings["modem"], node.on_packet, node.on_tx_done, node.on_modem_ready,
+                       lambda line: node.gps and node.gps.feed_modem(line))
     node.modem.start()
     node.gps = GpsSource(settings["gps"], node.on_fix, settings["modem"])
     web.start(node, args.web, settings["http_port"])

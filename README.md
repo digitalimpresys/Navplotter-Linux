@@ -6,7 +6,8 @@ web app dei nodi NavPlotter esistenti, con integrazione Signal K e OpenCPN.
 ## Cosa serve
 
 - Un Raspberry Pi con Raspberry Pi OS (Bookworm o successivo).
-- Un Heltec V2 con il firmware modem (dal webflasher: "Heltec V2 — Raspberry Pi modem"), collegato via USB.
+- Un Heltec V2 o V4 con il firmware modem (`firmware/heltec-modem`), collegato via USB. La V4 con il suo modulo
+  GPS fa anche da GPS: non serve altro.
 - Facoltativo: un GPS USB (per esempio G-Mouse), oppure una posizione fissa, gpsd o Signal K.
 
 ## Installazione
@@ -37,10 +38,10 @@ a mano, poi `sudo systemctl restart navplotter`.
 
 | Chiave | Default | Note |
 |---|---|---|
-| `modem` | `/dev/navplotter-modem` | porta seriale dell'Heltec V2 |
+| `modem` | `/dev/navplotter-modem` | porta seriale dell'Heltec; se non c'è, la prima Heltec V2 o V4 collegata |
 | `http_port` | `80` | porta della web app |
 | `gps.source` | `serial` | `serial` (GPS USB o seriale NMEA, per esempio G-Mouse), `none` (nessuna posizione propria: il nodo riceve, inoltra e mostra gli altri), `fixed`, `gpsd`, `signalk` o `auto` (prima Signal K, poi gpsd) |
-| `gps.serial_port` | `auto` | porta del GPS; `auto` prende il primo dispositivo seriale USB che non è il modem |
+| `gps.serial_port` | `auto` | porta del GPS; `auto` prende il primo dispositivo seriale USB che non è il modem, e senza GPS USB il GPS della Heltec V4 (`gps.source` `modem` usa solo quello) |
 | `gps.serial_baud` | `9600` | velocità del GPS seriale (molti vecchi GPS usano 4800) |
 | `gps.signalk_url` | `http://127.0.0.1:3000` | server Signal K |
 | `gps.signalk_token` | vuoto | token se Signal K richiede l'accesso |

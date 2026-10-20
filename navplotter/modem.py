@@ -1,4 +1,4 @@
-"""The Heltec V2 USB modem (firmware/heltec-modem): one text line per packet, see docs/PROTOCOL.md, section 10."""
+"""The Heltec V2 or V4 USB modem (firmware/heltec-modem): one text line per packet, see docs/PROTOCOL.md, section 10."""
 import glob
 import logging
 import os
@@ -8,18 +8,21 @@ import time
 import serial
 
 log = logging.getLogger("navplotter.modem")
+# The modem boards on USB: the CP2102 of the Heltec V2, the ESP32-S3's own USB port of the V4
+MODEM_PORTS = ("/dev/serial/by-id/usb-Silicon_Labs_CP210*", "/dev/serial/by-id/usb-Espressif*")
 
 
 class Modem:
-    """Reads the modem in its own thread and calls on_packet(bytes, rssi, snr) and on_tx_done(ok, reason).
+    """Reads the modem in its own thread and calls on_packet(bytes, rssi, snr) and on_tx_done(ok, reason), and
+    on_gps(nmea_line) for the sentences of the V4 GPS module.
 
-    Opening the port resets the board: nothing is sent before its READY line. If the port goes away (cable
-    pulled) the modem is opened again every few seconds.
+    Nothing is sent before the board's READY line. If the port goes away (cable pulled) the modem is opened
+    again every few seconds.
     """
 
-    def __init__(self, port, on_packet, on_tx_done, on_ready=None):
+    def __init__(self, port, on_packet, on_tx_done, on_ready=None, on_gps=None):
         self.port_name = port
-        self.on_packet, self.on_tx_done, self.on_ready = on_packet, on_tx_done, on_ready
+        self.on_packet, self.on_tx_done, self.on_ready, self.on_gps = on_packet, on_tx_done, on_ready, on_gps
         self.port = None
         self.ready = False
         self.node_id = None
@@ -42,13 +45,13 @@ class Modem:
                 return False
 
     def _find_port(self):
-        """The configured port, or else the first CP2102 (the Heltec V2 USB chip) that is plugged in."""
+        """The configured port, or else the first Heltec modem that is plugged in."""
         if os.path.exists(self.port_name):
             return self.port_name
-        found = sorted(glob.glob("/dev/serial/by-id/usb-Silicon_Labs_CP210*"))
+        found = sorted(p for pattern in MODEM_PORTS for p in glob.glob(pattern))
         if found:
             return found[0]
-        raise OSError("%s not found and no CP2102 USB device plugged in" % self.port_name)
+        raise OSError("%s not found and no Heltec modem plugged in" % self.port_name)
 
     def _run(self):
         last_error = None
@@ -74,8 +77,11 @@ class Modem:
 
     def _open(self):
         name = self._find_port()
-        # exclusive: if another program (OpenPlotter, Signal K, brltty) holds the port, say so instead of sharing it
-        port = serial.Serial(name, 115200, timeout=1, exclusive=True)
+        # exclusive: if another program (OpenPlotter, Signal K, brltty) holds the port, say so instead of sharing it.
+        # DTR and RTS low: on the V4 USB port they would restart the ESP32-S3, or even stop it in its bootloader
+        port = serial.Serial(None, 115200, timeout=1, exclusive=True)
+        port.port, port.dtr, port.rts = name, False, False
+        port.open()
         with self.lock:
             self.port = port
         log.info("modem port %s open, waiting for READY", name)
@@ -114,6 +120,9 @@ class Modem:
                     log.debug("bad RX line: %s", line)
                     continue
                 self.on_packet(data, rssi, snr)
+            elif line.startswith("GPS "):
+                if self.on_gps:
+                    self.on_gps(line[4:])
             elif line == "TXOK":
                 self.on_tx_done(True, "")
             elif line.startswith(("TXERR", "BUSY", "DUTY")):

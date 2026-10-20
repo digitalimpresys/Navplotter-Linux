@@ -1,7 +1,8 @@
 """Our own position: from a USB GPS, from Signal K, from gpsd, or a fixed one from the settings.
 
 "serial" (the default): a GPS on a USB or serial port that sends NMEA (G-Mouse, u-blox and the like). With
-port "auto" the first serial device that is not the modem is used; without one there is no position.
+port "auto" the first serial device that is not the modem is used; without one, the GPS module of a Heltec V4
+modem if it has one ("modem" uses only that); else there is no position.
 "none": no position of our own; the node still receives, relays and shows the others.
 "auto" tries Signal K first (the boat GPS, already on the boat network) and then gpsd.
 """
@@ -10,6 +11,7 @@ import json
 import logging
 import os
 import math
+import queue
 import socket
 import threading
 import time
@@ -35,6 +37,8 @@ class GpsSource:
             on_fix(*args)
         self.on_fix = fix
         self.status = "starting"
+        self.modem_lines = queue.Queue(maxsize=100)
+        self.modem_seen = 0.0       # when the modem last gave a GPS sentence (monotonic)
         threading.Thread(target=self._run, name="gps", daemon=True).start()
 
     def _run(self):
@@ -47,6 +51,8 @@ class GpsSource:
             try:
                 if kind == "fixed":
                     self._fixed()
+                elif kind == "modem" or (kind == "serial" and self._modem_gps()):
+                    self._from_modem()
                 elif kind == "serial":
                     self._serial()
                 elif kind == "signalk":
@@ -71,19 +77,45 @@ class GpsSource:
                     last_error = self.status
             time.sleep(5)
 
+    def feed_modem(self, line):
+        """An NMEA sentence from the GPS module of the modem (Heltec V4)."""
+        self.modem_seen = time.monotonic()
+        try:
+            self.modem_lines.put_nowait(line)
+        except queue.Full:
+            pass
+
+    def _modem_gps(self):
+        return self.s.get("serial_port", "auto") == "auto" and time.monotonic() - self.modem_seen < 10
+
+    def _from_modem(self):
+        self.baud = int(self.s.get("serial_baud", 9600))
+        self.status = "GPS modem"
+        log.info("GPS of the modem")
+        nmea = Nmea()
+        while True:
+            try:
+                line = self.modem_lines.get(timeout=10)
+            except queue.Empty:
+                raise RuntimeError("no data from the GPS of the modem")
+            fix = nmea.feed(line.strip())
+            if fix:
+                self.on_fix(*fix, "modem")
+
     def _find_serial(self):
         port = self.s.get("serial_port", "auto")
         if port != "auto":
             return port
         modem = os.path.realpath(self.modem_port) if self.modem_port else None
-        found = []
+        found, modems = [], {modem}
         for p in sorted(glob.glob("/dev/serial/by-id/*")):
-            if "CP210" in p or os.path.realpath(p) == modem:
-                continue        # the Heltec modem
+            if "CP210" in p or "Espressif" in p or os.path.realpath(p) == modem:
+                modems.add(os.path.realpath(p))     # the Heltec modem
+                continue
             gps_like = any(k in p.lower() for k in ("u-blox", "gps", "gnss"))
             found.append((not gps_like, p))
         for p in sorted(glob.glob("/dev/ttyACM*")):
-            if os.path.realpath(p) != modem and all(os.path.realpath(f) != p for _, f in found):
+            if p not in modems and all(os.path.realpath(f) != p for _, f in found):
                 found.append((True, p))
         if not found:
             raise RuntimeError("no USB GPS plugged in")

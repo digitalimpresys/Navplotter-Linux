@@ -1,4 +1,4 @@
-# Modem NavPlotter per Heltec WiFi LoRa 32 V2
+# Modem NavPlotter per Heltec WiFi LoRa 32 V2 e V4
 
 Firmware che trasforma una **Heltec WiFi LoRa 32 V2** (ESP32 + SX1276, 868 MHz) in un modem LoRa per il
 Raspberry Pi, collegato via USB. La scheda fa solo da radio: riceve ogni pacchetto sul canale NavPlotter
@@ -14,8 +14,23 @@ Dal computer, con la Heltec collegata via USB:
 
 ```
 cd firmware/heltec-modem
-~/.platformio/penv/bin/pio run -t upload
+~/.platformio/penv/bin/pio run -e heltec_wifi_lora_32_V2 -t upload   # Heltec V2
+~/.platformio/penv/bin/pio run -e heltec_wifi_lora_32_V4 -t upload   # Heltec V4
 ```
+
+L'immagine già compilata di ognuna (`heltec-v2-modem.bin`, `heltec-v4-modem.bin`, da scrivere all'indirizzo 0) è
+tra gli "artifacts" dell'ultima esecuzione di *Firmware* nella scheda Actions di GitHub. Se la V4 non si fa
+programmare, tieni premuto il tasto **BOOT** (PRG) mentre la colleghi.
+
+## Heltec V4
+
+- Radio SX1262 con l'amplificatore della V4 (GC1109 sulla V4.2, KCT8103L sulla V4.3, riconosciuto da solo):
+  22 dBm all'antenna, come i nodi Heltec V3.
+- Il modulo GPS L76K, se collegato al connettore GPS, viene acceso e le sue frasi RMC e GGA arrivano al
+  Raspberry come righe `GPS <frase>`: il nodo Linux le usa come posizione propria se non c'è un GPS USB.
+- Parla con il Raspberry attraverso la porta USB dell'ESP32-S3, che sul Raspberry compare come
+  `/dev/ttyACM0` (`/dev/serial/by-id/usb-Espressif...`). Il nodo Linux la trova da solo.
+- Aprendo la porta la V4 non si riavvia: il nodo Linux manda `INFO` e aspetta `READY`.
 
 ## Provarlo sul Raspberry Pi
 
