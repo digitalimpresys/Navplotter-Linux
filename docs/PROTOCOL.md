@@ -442,6 +442,7 @@ tempo in aria. Le righe si leggono anche a mano con un terminale.
 | modem → Pi | `READY <versione> <id esadecimale> <MHz> <SF> <dBm>` | all'avvio e in risposta a `INFO` |
 | modem → Pi | `RX <esadecimale> <rssi> <snr>` | pacchetto ricevuto |
 | modem → Pi | `TXOK` / `TXERR <codice>` / `BUSY` / `DUTY` | esito di una trasmissione |
+| modem → Pi | `GPS <frase NMEA>` | solo la Heltec V4 con il modulo GPS: le frasi RMC e GGA, così come arrivano |
 | modem → Pi | `# <testo>` | messaggio diagnostico, da ignorare |
 | Pi → modem | `TX <esadecimale>` | trasmetti questi byte (1–255) |
 | Pi → modem | `INFO` | ripeti `READY` |

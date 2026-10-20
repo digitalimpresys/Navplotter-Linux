@@ -164,6 +164,32 @@ class Gps(unittest.TestCase):
         self.assertIsNone(n.feed("$GPRMC,092750.000,A,5321.6802,N,00630.3372,W,0.02,31.66,280511,,,A*44"))  # bad checksum
         self.assertIsNone(n.feed("$GNRMC,,V,,,,,,,,,,N*4D"))                                                  # no fix yet
 
+    def test_gps_of_the_v4_modem(self):
+        import queue
+        from navplotter.gps import GpsSource
+        from navplotter.modem import Modem
+        fixes = queue.Queue()
+        gps = GpsSource({"source": "serial", "serial_port": "auto"}, lambda *f: fixes.put(f))
+
+        class Port:             # what the modem prints, then the cable is pulled
+            lines = [b"GPS $GNRMC,,V,,,,,,,,,,N*4D\n",
+                     b"GPS $GPRMC,092750.000,A,5321.6802,N,00630.3372,W,0.02,31.66,280511,,,A*43\n", b"TXOK\n"]
+
+            def readline(self):
+                if not self.lines:
+                    raise OSError("gone")
+                return self.lines.pop(0)
+
+        done = []
+        modem = Modem("/nonexistent", None, lambda ok, why: done.append(ok), on_gps=gps.feed_modem)
+        modem.port = Port()
+        with self.assertRaises(OSError):
+            modem._read_loop()
+        self.assertEqual(done, [True])
+        fix = fixes.get(timeout=10)     # the serial source finds no USB GPS and takes the modem's
+        self.assertAlmostEqual(fix[0], 53.36134, places=5)
+        self.assertEqual((fix[-1], gps.status, gps.baud), ("modem", "GPS modem", 9600))
+
 
 class Camera(unittest.TestCase):
     def test_hailo_nms_result(self):

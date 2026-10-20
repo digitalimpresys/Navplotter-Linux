@@ -8,6 +8,8 @@ on:
 jobs:
   heltec-modem:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write     # to publish the images as a pre-release, see the last step
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,7 +17,7 @@ jobs:
           python-version: "3.12"
       - name: Install PlatformIO
         run: pip install platformio pyserial
-      - name: Build Heltec V2 modem
+      - name: Build Heltec V2 and V4 modems
         run: pio run -d firmware/heltec-modem
       # One image written at address 0, as the NavPlotter web flasher wants it
       - name: Merge the image for the web flasher
@@ -29,5 +31,28 @@ jobs:
         with:
           name: heltec-v2-modem
           path: heltec-v2-modem.bin
+      - name: Merge the V4 image for the web flasher
+        run: |
+          B=firmware/heltec-modem/.pio/build/heltec_wifi_lora_32_V4
+          python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32s3 merge_bin -o heltec-v4-modem.bin \
+            0x0 $B/bootloader.bin 0x8000 $B/partitions.bin \
+            0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 $B/firmware.bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: heltec-v4-modem
+          path: heltec-v4-modem.bin
       - name: Check the test tool
         run: python -m py_compile tools/modem_test.py
+      # The images with a plain download link (artifacts need a GitHub login): pre-release modem-<branch>
+      - name: Publish the images
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          TAG=modem-${BRANCH//\//-}
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$SHA" \
+            --title "Modem firmware ($BRANCH)" --notes "Heltec V2 and V4 modem images from branch $BRANCH, to write at address 0x0."
+          gh release upload "$TAG" heltec-v2-modem.bin heltec-v4-modem.bin --clobber

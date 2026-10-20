@@ -30,13 +30,14 @@ fi
 
 echo "== User navplotter (serial port access)"
 id navplotter >/dev/null 2>&1 || useradd --system --home "$DATA" --shell /usr/sbin/nologin navplotter
-usermod -aG dialout navplotter
+usermod -aG dialout,plugdev navplotter   # plugdev: some systems give the ESP32-S3 USB port (Heltec V4) to it
 mkdir -p "$DATA"
 chown -R navplotter:navplotter "$DATA"
 
-echo "== Fixed name for the Heltec V2 modem: /dev/navplotter-modem"
+echo "== Fixed name for the Heltec modem (V2: CP2102, V4: ESP32-S3 USB): /dev/navplotter-modem"
 cat > /etc/udev/rules.d/99-navplotter-modem.rules <<'RULE'
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="navplotter-modem", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="navplotter-modem", GROUP="dialout", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1"
 RULE
 udevadm control --reload-rules && udevadm trigger || true
 
