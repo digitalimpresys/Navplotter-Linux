@@ -199,6 +199,33 @@ class Camera(unittest.TestCase):
         lab = Labels.for_model(hef)
         self.assertEqual((lab.names[3], lab.name("buoy"), lab.important), ("buoy", "boa", {"person"}))
 
+    def test_hailo_busy_is_tried_again(self):
+        from types import SimpleNamespace
+        from navplotter import camera
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, "models"))
+        open(os.path.join(tmp, "models", "m.hef"), "wb").close()
+        busy = [True]
+
+        class FakeDetector:
+            def __init__(self, hef, labels):
+                if busy[0]:
+                    raise RuntimeError("libhailort failed with error: 74 (HAILO_OUT_OF_PHYSICAL_DEVICES)")
+                self.name = os.path.basename(hef)
+
+        real = camera.HailoDetector
+        camera.HailoDetector = FakeDetector
+        try:
+            cam = camera.Camera(SimpleNamespace(data=tmp, device="auto", hef="auto"))
+            cam._load_detector()
+            self.assertIsNone(cam.detector)
+            self.assertIn("74", cam.detector_error)
+            busy[0] = False                     # the other program let the chip go
+            cam._load_detector()
+            self.assertEqual((cam.detector.name, cam.detector_error), ("m.hef", None))
+        finally:
+            camera.HailoDetector = real
+
     def test_recordings(self):
         try:
             import cv2
