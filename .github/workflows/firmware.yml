@@ -8,6 +8,8 @@ on:
 jobs:
   heltec-modem:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write     # to publish the images as a pre-release, see the last step
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,3 +44,15 @@ jobs:
           path: heltec-v4-modem.bin
       - name: Check the test tool
         run: python -m py_compile tools/modem_test.py
+      # The images with a plain download link (artifacts need a GitHub login): pre-release modem-<branch>
+      - name: Publish the images
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          TAG=modem-${BRANCH//\//-}
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$SHA" \
+            --title "Modem firmware ($BRANCH)" --notes "Heltec V2 and V4 modem images from branch $BRANCH, to write at address 0x0."
+          gh release upload "$TAG" heltec-v2-modem.bin heltec-v4-modem.bin --clobber
