@@ -66,6 +66,14 @@ Il nodo invia frasi `!AIVDM` (tipo 18 per la posizione, tipo 24 per nome e tipo)
 Senza MMSI configurato, ogni barca riceve un MMSI finto `999xxxxxx` ricavato dall'id: non è un MMSI reale e va
 usato solo a bordo.
 
+## Meteo e pianificazione
+
+Come nell'app Android, la web app ha vento, corrente e temporali sopra la carta (pulsante ≋) e, nella voce
+**Navigazione**, la scheda **Pianifica**: orari, vento, corrente e onda per ogni tratta di una rotta, a motore o a
+vela con la polare della barca. Le previsioni sono di Open-Meteo: le scarica il Raspberry (`/meteo`) quando ha
+internet, altrimenti il browser se ce l'ha lui, e restano nel browser per l'uso senza rete. Il modulo è
+`web/navplotter-meteo.js`, lo stesso file dell'app (`www/navplotter-meteo.js` in app-NavPlotter).
+
 ## Telecamera e riconoscimento oggetti (facoltativo)
 
 Con una telecamera USB, la web app ha una voce **Telecamera** con il video dal vivo, una vista notturna (più

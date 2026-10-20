@@ -1,10 +1,12 @@
 """python3 -m unittest discover tests"""
+import gzip
 import json
 import os
 import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from navplotter import ais as A
@@ -339,6 +341,21 @@ class Web(unittest.TestCase):
             self.assertEqual(r.headers.get("Access-Control-Allow-Origin"), None)  # the page itself needs no CORS
             r = urllib.request.urlopen(base + "/api/state")
             self.assertEqual(r.headers["Access-Control-Allow-Origin"], "*")
+            r = urllib.request.urlopen(base + "/navplotter-meteo.js")
+            self.assertIn(b"Pianifica", gzip.decompress(r.read()))
+        finally:
+            server.shutdown()
+
+    def test_meteo_only_for_open_meteo(self):
+        from navplotter import web
+        node, clock = make_node(tempfile.mkdtemp())
+        server = web.start(node, os.path.join(ROOT, "web"), 0)
+        base = "http://127.0.0.1:%d/meteo?url=" % server.server_address[1]
+        try:
+            for url in ("http://api.open-meteo.com/v1/forecast", "https://example.com/v1/forecast", "https://api.open-meteo.com.example.com/"):
+                with self.assertRaises(urllib.error.HTTPError) as e:
+                    urllib.request.urlopen(base + urllib.parse.quote(url, safe=""))
+                self.assertEqual(e.exception.code, 400)
         finally:
             server.shutdown()
 
