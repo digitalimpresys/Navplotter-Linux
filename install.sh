@@ -34,9 +34,10 @@ usermod -aG dialout navplotter
 mkdir -p "$DATA"
 chown -R navplotter:navplotter "$DATA"
 
-echo "== Fixed name for the Heltec V2 modem: /dev/navplotter-modem"
+echo "== Fixed name for the Heltec modem (V2: CP2102, V4: ESP32-S3 USB): /dev/navplotter-modem"
 cat > /etc/udev/rules.d/99-navplotter-modem.rules <<'RULE'
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="navplotter-modem", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", SYMLINK+="navplotter-modem", GROUP="dialout", MODE="0660", ENV{ID_MM_DEVICE_IGNORE}="1"
 RULE
 udevadm control --reload-rules && udevadm trigger || true
 
