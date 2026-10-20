@@ -401,20 +401,31 @@
   // ================= passage planning =================
   // A route is cut into pieces of a few miles; the forecast is asked for each piece; then the boat is moved along
   // the route at its speed through the water plus the current along the course, hour after hour, reading the
-  // wind where and when it is.
-  const plan = Object.assign({ route: null, dep: null, stw: 5, sail: false, beat: 45, corr: 1, useP: true, eff: 90, lwl: 8.5, kind: 'cruiser', show: false }, load('np-plan') || {});
+  // wind where and when it is. Under sail the tacks come either from simple rules (laylines) or from isochrones.
+  const plan = Object.assign({ route: null, dep: null, stw: 5, sail: false, iso: true, beat: 45, corr: 1, useP: true, eff: 90, lwl: 8.5, kind: 'cruiser', show: false }, load('np-plan') || {});
   plan.show = false; plan.res = null; plan.name = '';
   let planData = load('np-plan-data'); // {key, samples, t0, nt, cells, at}
 
-  function routeKey(pts) { return pts.map((p) => p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';'); }
+  // "w" marks the forecasts that also cover the sides of the route (older ones only have the route itself)
+  function routeKey(pts) { return 'w:' + pts.map((p) => p.lat.toFixed(4) + ',' + p.lon.toFixed(4)).join(';'); }
+  // Points along the route, and on two lines on each side of it (one and two steps away), so that the isochrones,
+  // which leave the direct line, still read the forecast where the boat goes
   function samplesOf(pts) {
-    const total = pathNm(pts), step = Math.max(3, total / 60), out = [];
+    const total = pathNm(pts), step = Math.max(3, total / 40), out = [];
+    const add = (lat, lon, brg, leg) => {
+      for (const k of [0, -1, 1, -2, 2]) {
+        const off = k * step;
+        out.push({ lat: lat - off * Math.sin(brg * D2R) / 60, lon: lon + off * Math.cos(brg * D2R) / (60 * Math.cos(lat * D2R)), leg });
+      }
+    };
+    let brg = 0;
     for (let k = 0; k < pts.length - 1; k++) {
-      const a = pts[k], b = pts[k + 1], n = Math.max(1, Math.ceil(distBrg(a.lat, a.lon, b.lat, b.lon).nm / step));
-      for (let j = 0; j < n; j++) out.push({ lat: a.lat + (b.lat - a.lat) * j / n, lon: a.lon + (b.lon - a.lon) * j / n, leg: k });
+      const a = pts[k], b = pts[k + 1], d = distBrg(a.lat, a.lon, b.lat, b.lon), n = Math.max(1, Math.ceil(d.nm / step));
+      brg = d.brg;
+      for (let j = 0; j < n; j++) add(a.lat + (b.lat - a.lat) * j / n, a.lon + (b.lon - a.lon) * j / n, brg, k);
     }
     const z = pts[pts.length - 1];
-    out.push({ lat: z.lat, lon: z.lon, leg: pts.length - 1 });
+    add(z.lat, z.lon, brg, pts.length - 1);
     return out;
   }
 
@@ -430,6 +441,36 @@
     pd.samples.forEach((q, i) => { const d = (q.lat - lat) ** 2 + ((q.lon - lon) * k) ** 2; if (d < bd) { bd = d; best = i; } });
     return best;
   }
+  // Forecast at a point: the three nearest samples, weighted by the inverse of the squared distance
+  function wxAt(pd, lat, lon, f) {
+    const k = Math.cos(lat * D2R), near = [[Infinity, -1], [Infinity, -1], [Infinity, -1]];
+    for (let i = 0; i < pd.samples.length; i++) {
+      const q = pd.samples[i], d = (q.lat - lat) ** 2 + ((q.lon - lon) * k) ** 2;
+      if (d < near[2][0]) { near[2] = [d, i]; near.sort((a, b) => a[0] - b[0]); }
+    }
+    if (near[0][0] < 1e-12) return cellAt(pd.cells[near[0][1]], f);
+    const list = near.filter((n) => n[1] >= 0), tot = list.reduce((a, n) => a + 1 / n[0], 0);
+    return blend(list.map((n) => [cellAt(pd.cells[n[1]], f), 1 / n[0] / tot]));
+  }
+
+  const newLeg = (a, b) => {
+    const d = distBrg(a.lat, a.lon, b.lat, b.lon);
+    return { from: a.name, to: b.name, nm: d.nm, brg: d.brg, start: null, end: null, maxWs: 0, maxG: 0, minTwa: 180, along: 0, hours: 0,
+      maxWh: 0, storm: 0, stormT: null, mid: null, beyond: false, warn: [], info: [], sailed: 0, tacks: 0, gybes: 0, motor: 0, stuck: false };
+  };
+  // What the weather does on a leg: strongest wind and gusts, waves, thunderstorms, the wind at mid leg.
+  // db: distance and bearing from the boat to the end of the leg
+  function noteWx(leg, s, t, db) {
+    if (!s) { leg.beyond = true; return; }
+    const ws = windKn(s), from = windFrom(s);
+    leg.maxWs = Math.max(leg.maxWs, ws);
+    if (s.g != null) leg.maxG = Math.max(leg.maxG, s.g);
+    if (ws >= 8) leg.minTwa = Math.min(leg.minTwa, angDiff(from, db.brg));
+    if (s.wh != null) leg.maxWh = Math.max(leg.maxWh, s.wh);
+    const sl = stormLvl(s);
+    if (sl > leg.storm) { leg.storm = sl; leg.stormT = t; }
+    if (1 - db.nm / leg.nm <= 0.5 || !leg.mid) leg.mid = { ws, from, g: s.g, twa: angDiff(from, db.brg) };
+  }
 
   // The boat is moved in steps of three minutes: heading for the next waypoint, or, under sail with the waypoint
   // inside the no-go cone (closer than the beating angle to the wind, or straight downwind), on one tack until
@@ -438,11 +479,7 @@
   // o: {stw, sail, beat, corr}
   function simulate(pd, pts, dep, o) {
     const stw = o.stw, DT = 0.05;
-    const legs = pts.slice(0, -1).map((a, k) => {
-      const b = pts[k + 1], d = distBrg(a.lat, a.lon, b.lat, b.lon);
-      return { from: a.name, to: b.name, nm: d.nm, brg: d.brg, start: null, end: null, maxWs: 0, maxG: 0, minTwa: 180, along: 0, hours: 0,
-        maxWh: 0, storm: 0, stormT: null, mid: null, beyond: false, warn: [], info: [], sailed: 0, tacks: 0, gybes: 0, motor: 0, stuck: false };
-    });
+    const legs = pts.slice(0, -1).map((a, k) => newLeg(a, pts[k + 1]));
     let t = dep;
     const track = [{ t, lat: pts[0].lat, lon: pts[0].lon }];
     legs.forEach((leg, k) => {
@@ -454,18 +491,12 @@
         const db = distBrg(P.lat, P.lon, B.lat, B.lon);
         if (db.nm < 0.02) break;
         const f = tIdx(pd, t), s = f == null ? null : cellAt(pd.cells[nearestCell(pd, P.lat, P.lon)], f);
-        let head = db.brg, sp = stw, cu = 0, cv = 0, ws = 0, from = 0, turn = null;
+        let head = db.brg, sp = stw, cu = 0, cv = 0, ws = 0, from = 0;
+        noteWx(leg, s, t, db);
         if (s) {
           ws = windKn(s); from = windFrom(s);
-          leg.maxWs = Math.max(leg.maxWs, ws);
-          if (s.g != null) leg.maxG = Math.max(leg.maxG, s.g);
-          if (ws >= 8) leg.minTwa = Math.min(leg.minTwa, angDiff(from, db.brg));
-          if (s.wh != null) leg.maxWh = Math.max(leg.maxWh, s.wh);
-          const sl = stormLvl(s);
-          if (sl > leg.storm) { leg.storm = sl; leg.stormT = t; }
           if (s.cu != null) { cu = s.cu; cv = s.cv; }
-          if (1 - db.nm / leg.nm <= 0.5 || !leg.mid) leg.mid = { ws, from, g: s.g, twa: angDiff(from, db.brg) };
-        } else leg.beyond = true;
+        }
         // Close to the waypoint the boat just goes there
         if (db.nm < 0.3) { if (o.polar && s) sp = Math.max(2, polarSpeed(o.polar, angDiff(from, db.brg), ws) * o.eff); }
         else if (o.sail && s && ws < 5) leg.motor += DT;
@@ -514,6 +545,132 @@
       const last = track[track.length - 1];
       if (last.lat !== B.lat || last.lon !== B.lon) track.push({ t, lat: B.lat, lon: B.lon });
     });
+    return finishPlan(legs, track, dep, t, o);
+  }
+
+  // ---------- isochrones ----------
+  // From the start every heading is tried, every few minutes; of all the points reached, only the furthest from
+  // the start in each direction is kept (the isochrone, the line the boat can reach in that time), and from those
+  // the next step starts. The first point that can reach the waypoint gives the arrival; going back through the
+  // points it came from gives the fastest track. Wind and current are read where and when each point is. A tack or
+  // a gybe costs two minutes, so that the track does not zigzag. Each leg of the route is one search, inside the
+  // corridor allowed off its direct line: the isochrones do not know the land, the waypoints of the route keep
+  // them off it.
+  const TACK_H = 2 / 60;
+  // Boat speed through the water on a heading, and whether that is under engine. sailable: the wind is enough to sail
+  function boatSpeed(o, s, head, sailable) {
+    if (!s || !sailable) return { sp: o.stw, m: true };
+    const ws = windKn(s), twa = angDiff(windFrom(s), head);
+    if (o.polar) return { sp: polarSpeed(o.polar, twa, ws) * o.eff, m: false };
+    return { sp: twa < o.beat ? 0 : o.stw * polar(twa), m: false };
+  }
+  const canSail = (o, s) => !!s && windKn(s) >= 5 && (!o.polar || polarSpeed(o.polar, 90, windKn(s)) * o.eff >= 2);
+
+  // One leg from A to B leaving at t0: {path: [{t, lat, lon, h, m}]} or null; snaps gets an isochrone each hour.
+  // coarse: half the directions, for the other departure times, which only need the arrival
+  function isoLeg(pd, A, B, t0, o, snaps, coarse) {
+    const SECT = coarse ? 3 : 1.5, HEAD_STEP = coarse ? 10 : 5;
+    const kx = 60 * Math.cos(A.lat * D2R), bx = (B.lon - A.lon) * kx, by = (B.lat - A.lat) * 60, D = Math.hypot(bx, by);
+    const ll = (n) => ({ lat: A.lat + n.y / 60, lon: A.lon + n.x / kx });
+    if (D < 0.02) return { path: [{ t: t0, lat: B.lat, lon: B.lon, h: null, m: false }] };
+    const ux = bx / D, uy = by / D, brg = (Math.atan2(bx, by) * R2D + 360) % 360;
+    const corr = o.corr > 0 ? o.corr : D / 2 + 2;
+    // About forty steps for the leg, between three minutes and half an hour each
+    const dt = Math.min(0.5, Math.max(0.05, D / Math.max(2, o.stw * 0.6) / 40));
+    let front = [{ x: 0, y: 0, t: t0, p: null, h: null, m: false }], lastSnap = t0;
+    for (let it = 0; it < 3000 && front.length; it++) {
+      if (front[0].t - t0 > 7 * 24 * H) return null;
+      // The weather at each point; then, can one of them reach the waypoint within this step?
+      let arr = null;
+      for (const p of front) {
+        const pos = ll(p), f = tIdx(pd, p.t);
+        p.s = f == null ? null : wxAt(pd, pos.lat, pos.lon, f);
+        p.ok = canSail(o, p.s);
+        const dx = bx - p.x, dy = by - p.y, dB = Math.hypot(dx, dy), hB = (Math.atan2(dx, dy) * R2D + 360) % 360;
+        let b = boatSpeed(o, p.s, hB, p.ok);
+        if (dB < 0.3) b = { sp: Math.max(2, b.sp), m: b.m }; // close to the waypoint the boat just goes there
+        const cu = p.s && p.s.cu != null ? p.s.cu : 0, cv = p.s && p.s.cu != null ? p.s.cv : 0;
+        const vx = b.sp * Math.sin(hB * D2R) + cu, vy = b.sp * Math.cos(hB * D2R) + cv, along = dB ? (vx * dx + vy * dy) / dB : 1;
+        if (b.sp > 0 && along > 0.1 && dB <= along * dt) {
+          const ta = p.t + dB / along * H;
+          if (!arr || ta < arr.t) arr = { x: bx, y: by, t: ta, p, h: hB, m: b.m };
+        }
+      }
+      if (arr) {
+        const path = [];
+        for (let n = arr; n; n = n.p) { const q = ll(n); path.push({ t: n.t, lat: q.lat, lon: q.lon, h: n.h, m: n.m }); }
+        path.reverse();
+        path[path.length - 1].lat = B.lat; path[path.length - 1].lon = B.lon;
+        return { path };
+      }
+      // Every heading from every point; the furthest point in each direction from the start is kept
+      const best = new Map();
+      for (const p of front) {
+        const cu = p.s && p.s.cu != null ? p.s.cu : 0, cv = p.s && p.s.cu != null ? p.s.cv : 0;
+        // Every few degrees, plus the best angles up and down wind for this wind on both tacks
+        const heads = [];
+        for (let h = 0; h < 360; h += HEAD_STEP) heads.push(h);
+        if (p.ok) {
+          const from = windFrom(p.s), a = o.polar ? bestAngles(o.polar, windKn(p.s)) : { up: o.beat, down: 160 };
+          heads.push(from + a.up, from - a.up, from + a.down, from - a.down);
+        }
+        for (let h of heads) {
+          h = (h + 360) % 360;
+          const b = boatSpeed(o, p.s, h, p.ok);
+          if (b.sp < 0.3) continue;
+          let step = dt;
+          if (p.h != null && !b.m && !p.m && angDiff(h, p.h) > 50) step -= TACK_H;
+          const x = p.x + (b.sp * Math.sin(h * D2R) + cu) * step, y = p.y + (b.sp * Math.cos(h * D2R) + cv) * step;
+          const along = x * ux + y * uy, xte = x * uy - y * ux;
+          if (Math.abs(xte) > corr || along < -corr || along > D + corr) continue;
+          const r = x * x + y * y, sec = Math.round(sgn180(Math.atan2(x, y) * R2D - brg) / SECT), old = best.get(sec);
+          if (!old || r > old.r) best.set(sec, { x, y, r, t: p.t + dt * H, p, h, m: b.m, sec });
+        }
+      }
+      front = [...best.values()];
+      if (snaps && front.length && front[0].t - lastSnap >= H - 1) {
+        lastSnap = front[0].t;
+        snaps.push(front.slice().sort((a, b) => a.sec - b.sec).map((n) => { const q = ll(n); return [q.lat, q.lon]; }));
+      }
+    }
+    return null;
+  }
+
+  // The whole route with the isochrones, in the same form as simulate(); null when a leg finds no way
+  function simulateIso(pd, pts, dep, o, keepSnaps, coarse) {
+    const legs = pts.slice(0, -1).map((a, k) => newLeg(a, pts[k + 1])), snaps = keepSnaps ? [] : null;
+    let t = dep;
+    const track = [{ t, lat: pts[0].lat, lon: pts[0].lon }];
+    for (let k = 0; k < legs.length; k++) {
+      const leg = legs[k], B = pts[k + 1], r = isoLeg(pd, pts[k], B, t, o, snaps, coarse);
+      if (!r) return null;
+      leg.start = t;
+      let lastHead = null;
+      for (let i = 1; i < r.path.length; i++) {
+        const a = r.path[i - 1], b = r.path[i], dt = (b.t - a.t) / H, f = tIdx(pd, a.t);
+        const s = f == null ? null : wxAt(pd, a.lat, a.lon, f);
+        noteWx(leg, s, a.t, distBrg(a.lat, a.lon, B.lat, B.lon));
+        if (s && s.cu != null) leg.along += (s.cu * Math.sin(leg.brg * D2R) + s.cv * Math.cos(leg.brg * D2R)) * dt;
+        leg.hours += dt;
+        leg.sailed += distBrg(a.lat, a.lon, b.lat, b.lon).nm;
+        if (b.m) leg.motor += dt;
+        if (lastHead != null && s && !b.m && angDiff(b.h, lastHead) > 50) {
+          const from = windFrom(s), up = angDiff(from, b.h) < 90 || angDiff(from, lastHead) < 90;
+          if (up) leg.tacks++; else leg.gybes++;
+          track.push({ t: a.t, lat: a.lat, lon: a.lon, turn: up ? 'tack' : 'gybe' });
+        }
+        lastHead = b.m ? null : b.h;
+        track.push({ t: b.t, lat: b.lat, lon: b.lon });
+      }
+      t = r.path[r.path.length - 1].t;
+      leg.end = t;
+    }
+    const res = finishPlan(legs, track, dep, t, o);
+    res.iso = true; res.snaps = snaps;
+    return res;
+  }
+
+  function finishPlan(legs, track, dep, t, o) {
     let maxWs = 0, maxG = 0, w = 0;
     for (const g of legs) {
       g.along = g.hours ? g.along / g.hours : 0;
@@ -552,6 +709,13 @@
   function drawPlan(c, v) {
     const r = plan.res, pts = r.track.map((q) => v.px(q.lat, q.lon));
     c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+    // The isochrones, one line for each hour from the departure
+    if (r.snaps) {
+      c.strokeStyle = 'rgba(21,101,192,.45)'; c.lineWidth = 1.5;
+      for (const line of r.snaps) {
+        c.beginPath(); line.forEach((q, i) => { const [x, y] = v.px(q[0], q[1]); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.stroke();
+      }
+    }
     c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])));
     c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 6; c.stroke();
     c.setLineDash([10, 7]); c.strokeStyle = '#ff8f00'; c.lineWidth = 3; c.stroke(); c.setLineDash([]);
@@ -683,7 +847,7 @@
   };
 
   const localInput = (t) => { const d = new Date(t * 1000 - new Date(t * 1000).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
-  let planMsg = '', planBusy = false;
+  let planMsg = '', planBusy = false, altGen = 0;
 
   let polEdit = false, polMsg = '';
   function polarSummary() {
@@ -751,6 +915,8 @@
       '<label>' + (plan.sail && plan.useP ? L('Velocità a motore (nodi)', 'Speed under engine (knots)') : L('Velocità media sull\'acqua (nodi)', 'Average speed through the water (knots)')) + '</label><input type="text" inputmode="decimal" id="plStw" value="' + String(plan.stw).replace('.', isIt() ? ',' : '.') + '">' +
       '<div class="check"><input type="checkbox" id="plSail"' + (plan.sail ? ' checked' : '') + '><span>' + L('A vela: simula i bordi', 'Under sail: simulate tacking') + '</span></div>' +
       '<div id="plSailBox" style="display:' + (plan.sail ? '' : 'none') + '">' +
+      '<label>' + L('Come scegliere i bordi', 'How to choose the tacks') + '</label><select id="plIso"><option value="1"' + (plan.iso ? ' selected' : '') + '>' + L('Isocrone: la strada più veloce col vento previsto', 'Isochrones: the fastest way with the forecast wind') + '</option>' +
+      '<option value="0"' + (plan.iso ? '' : ' selected') + '>' + L('Bordi semplici sulle lay-line', 'Simple tacks on the laylines') + '</option></select>' +
       '<label>' + L('Velocità a vela', 'Speed under sail') + '</label><select id="plUseP"><option value="1"' + (plan.useP ? ' selected' : '') + '>' + L('Dalla polare della barca', "From the boat's polar") + '</option>' +
       '<option value="0"' + (plan.useP ? '' : ' selected') + '>' + L('Velocità media fissa', 'Fixed average speed') + '</option></select>' +
       (plan.useP ? polarSummary() +
@@ -758,8 +924,10 @@
         '<div class="btns"><button class="btn sec" id="plPolEdit">' + L('Polare: vedi, modifica, importa', 'Polar: view, edit, import') + '</button></div>'
       : '<label>' + L('Angolo di bolina dal vento (gradi)', 'Beating angle to the wind (degrees)') + '</label><input type="text" inputmode="numeric" id="plBeat" value="' + plan.beat + '">') +
       '<label>' + L('Allontanamento massimo dalla rotta diretta (miglia, 0 = nessun limite)', 'Furthest off the direct line (miles, 0 = no limit)') + '</label><input type="text" inputmode="decimal" id="plCorr" value="' + String(plan.corr).replace('.', isIt() ? ',' : '.') + '">' +
+      (plan.iso ? '<div class="hint">' + L("Le isocrone provano tutte le prue ogni pochi minuti, con vento e corrente di quel posto e di quell'ora, e tengono la strada che arriva prima: per esempio un bordo lungo verso dove il vento girerà. Ogni virata conta due minuti. Non conoscono la terra: tieni i waypoint al largo di coste e isole, e la barca resta entro l'allontanamento massimo dalla rotta diretta. Con poco vento va a motore.",
+        "The isochrones try every heading every few minutes, with the wind and current of that place and hour, and keep the way that arrives first: for example a long tack towards where the wind will shift. Each tack counts two minutes. They do not know the land: keep the waypoints off coasts and islands, and the boat stays within the furthest distance off the direct line. In light wind it motors.") + '</div>' :
       '<div class="hint">' + L("Col vento in prua la barca bordeggia: vira quando può arrivare al waypoint sull'altro bordo o quando si allontana troppo dalla rotta. Con vento in poppa piena stramba. Con la polare gli angoli di bolina e di poppa migliori li calcola lei per ogni vento; con la velocità fissa quella è al traverso, di bolina e in poppa un po' meno. Con poco vento va a motore.",
-        'With the wind on the nose the boat tacks: when it can fetch the waypoint on the other tack, or when it gets too far off the route. Dead downwind it gybes. With the polar the best upwind and downwind angles come from it for each wind; with a fixed speed that is the reaching speed, a little less close-hauled and running. In light wind it motors.') + '</div></div>' +
+        'With the wind on the nose the boat tacks: when it can fetch the waypoint on the other tack, or when it gets too far off the route. Dead downwind it gybes. With the polar the best upwind and downwind angles come from it for each wind; with a fixed speed that is the reaching speed, a little less close-hauled and running. In light wind it motors.') + '</div>') + '</div>' +
       '<div class="btns"><button class="btn" id="plGo">' + L('Calcola', 'Compute') + '</button></div>' +
       '<div class="hint">' + (planBusy ? L('Scarico le previsioni...', 'Downloading the forecast...') : planMsg ||
         L('Vento, corrente e onde da Open-Meteo lungo la rotta. La corrente cambia la velocità sul fondo e quindi gli orari.', 'Wind, current and waves from Open-Meteo along the route. The current changes the speed over ground, and so the times.')) + '</div></div>';
@@ -770,6 +938,7 @@
     $('plDep').onchange = (e) => { const d = new Date(e.target.value); if (!isNaN(d)) { plan.dep = Math.round(d.getTime() / 1000); savePlan(); if (plan.res) compute(false); } };
     $('plStw').onchange = (e) => { const v = parseFloat(e.target.value.replace(',', '.')); if (v > 0 && v < 40) { plan.stw = v; savePlan(); if (plan.res) compute(false); } };
     $('plSail').onchange = (e) => { plan.sail = e.target.checked; savePlan(); renderPlan(); if (plan.res) compute(false); };
+    $('plIso').onchange = (e) => { plan.iso = e.target.value === '1'; savePlan(); renderPlan(); if (plan.res) compute(false); };
     $('plUseP').onchange = (e) => { plan.useP = e.target.value === '1'; savePlan(); renderPlan(); if (plan.res) compute(false); };
     if ($('plEff')) $('plEff').onchange = (e) => { const v = parseFloat(e.target.value.replace(',', '.')); if (v >= 40 && v <= 120) { plan.eff = v; savePlan(); if (plan.res) compute(false); } else e.target.value = plan.eff; };
     if ($('plPolEdit')) $('plPolEdit').onclick = () => { polEdit = !polEdit; renderPlan(); if (polEdit) $('polCard').scrollIntoView({ behavior: 'smooth' }); };
@@ -779,7 +948,7 @@
     $('plGo').onclick = () => compute(true);
     renderResult();
   }
-  function savePlan() { save('np-plan', { route: plan.route, dep: plan.dep, stw: plan.stw, sail: plan.sail, beat: plan.beat, corr: plan.corr, useP: plan.useP, eff: plan.eff, lwl: plan.lwl, kind: plan.kind }); }
+  function savePlan() { save('np-plan', { route: plan.route, dep: plan.dep, stw: plan.stw, sail: plan.sail, iso: plan.iso, beat: plan.beat, corr: plan.corr, useP: plan.useP, eff: plan.eff, lwl: plan.lwl, kind: plan.kind }); }
 
   function compute(download) {
     const r = ud.routes.find((x) => x.id === plan.route);
@@ -794,9 +963,25 @@
     const run = () => {
       plan.name = r.name;
       const o = { stw: plan.stw, sail: plan.sail, beat: plan.beat, corr: plan.corr, polar: plan.sail && plan.useP ? getPolar() : null, eff: plan.eff / 100 };
-      plan.res = simulate(planData, pts, plan.dep, o);
-      plan.alts = [0, 3, 6, 12, 24, 48].map((x) => simulate(planData, pts, plan.dep + x * H, o)).map((x, i) => Object.assign(x, { off: [0, 3, 6, 12, 24, 48][i] }));
+      // With the isochrones, a leg that finds no way (no wind and no engine speed, or a corridor too narrow) falls
+      // back to the simple tacks for the whole route, and says so
+      const one = (d, main) => {
+        if (!(plan.sail && plan.iso)) return simulate(planData, pts, d, o);
+        const r = simulateIso(planData, pts, d, o, main, !main);
+        return r || Object.assign(simulate(planData, pts, d, o), { isoFail: true });
+      };
+      plan.res = one(plan.dep, true);
+      plan.alts = [Object.assign({}, plan.res, { off: 0 })];
       renderResult(); renderBar(); drawMap();
+      // The other departure times one at a time, so that the page does not freeze on a slow phone
+      const gen = ++altGen, dep = plan.dep, offs = [3, 6, 12, 24, 48];
+      const next = (i) => {
+        if (gen !== altGen || i >= offs.length) return;
+        plan.alts.push(Object.assign(one(dep + offs[i] * H, false), { off: offs[i] }));
+        renderResult();
+        setTimeout(() => next(i + 1), 0);
+      };
+      setTimeout(() => next(0), 0);
     };
     // A forecast less than three hours old for this same route is used again without downloading
     if (have && (!download || Date.now() - planData.at < 3 * H * 1000)) { planMsg = L('Previsioni del ', 'Forecast of ') + fmtAge(planData.at); run(); renderPlan(); return; }
@@ -829,7 +1014,9 @@
         (r.tacks ? ', ' + r.tacks + ' ' + L(r.tacks === 1 ? 'virata' : 'virate', r.tacks === 1 ? 'tack' : 'tacks') : '') +
         (r.gybes ? ', ' + r.gybes + ' ' + L(r.gybes === 1 ? 'strambata' : 'strambate', r.gybes === 1 ? 'gybe' : 'gybes') : '') + '</span>' : '') +
       '<span>' + L('Durata', 'Time') + '</span><span>' + fmtDur(r.end - r.dep) + ' &middot; ' + L('media ', 'average ') + (r.sailed / ((r.end - r.dep) / H || 1)).toFixed(1) + ' kn</span>' +
-      '<span>' + L('Vento massimo', 'Strongest wind') + '</span><span>' + r.maxWs.toFixed(0) + ' kn, ' + L('raffiche ', 'gusts ') + r.maxG.toFixed(0) + ' kn</span></div>' +
+      '<span>' + L('Vento massimo', 'Strongest wind') + '</span><span>' + r.maxWs.toFixed(0) + ' kn, ' + L('raffiche ', 'gusts ') + r.maxG.toFixed(0) + ' kn</span>' +
+      (r.iso ? '<span>' + L('Bordi', 'Tacks') + '</span><span>' + L('dalle isocrone', 'from the isochrones') + '</span>' : '') + '</div>' +
+      (r.isoFail ? '<div class="plWarn w1">&#9888; ' + L("Le isocrone non trovano una strada entro l'allontanamento massimo: bordi semplici", 'The isochrones find no way within the furthest distance off the line: simple tacks') + '</div>' : '') +
       '<div class="btns"><button class="btn" id="plMap">' + L('Mostra sulla carta', 'Show on the chart') + '</button>' +
       '<button class="btn sec" id="plFollow">' + (ud.route === plan.route ? L('Rotta già seguita', 'Route being followed') : L('Segui la rotta', 'Follow the route')) + '</button></div></div>';
     r.legs.forEach((g, i) => {
