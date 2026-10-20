@@ -45,6 +45,7 @@ LABELS_IT = {"person": "persona", "boat": "barca", "bird": "uccello", "surfboard
 IMPORTANT = {"person", "boat"}
 
 DATA = "/var/lib/navplotter"
+DETECTOR_RETRY_S = 30.0
 REC_EVERY_S = 1.0           # one frame a second: enough variety for training, and not too many alike
 REC_MAX_FRAMES = 3600       # a recording stops by itself after an hour
 REC_MIN_FREE = 500 << 20    # and when less than 500 MB are left on the disk
@@ -173,6 +174,7 @@ class Camera:
         self.detect_on = True
         self.detector = None
         self.detector_error = None
+        self.detector_tried = 0.0  # when loading the model was last tried (monotonic)
         self.labels = Labels()
         self.clients = 0
         self.rec_dir = os.path.join(args.data, "recordings")
@@ -200,6 +202,7 @@ class Camera:
         raise RuntimeError("no USB camera found")
 
     def _load_detector(self):
+        self.detector_tried = time.monotonic()
         hef = find_hef(self.args.hef, os.path.join(self.args.data, "models"))
         if hef is None:
             self.detector_error = "no Hailo model (.hef) found: sudo apt install hailo-all"
@@ -207,10 +210,13 @@ class Camera:
         try:
             self.labels = Labels.for_model(hef)
             self.detector = HailoDetector(hef, self.labels)
+            self.detector_error = None
             log.info("Hailo detector ready: %s (%d classes)", hef, len(self.labels.names))
         except Exception as e:
-            self.detector_error = "Hailo: %s" % e
-            log.warning("no recognition: %s", self.detector_error)
+            error = "Hailo: %s" % e
+            if error != self.detector_error:     # tried again every DETECTOR_RETRY_S: logged once
+                log.warning("no recognition: %s", error)
+            self.detector_error = error
 
     def _run(self):
         import cv2
@@ -242,6 +248,9 @@ class Camera:
                 if self.night:
                     frame = night_view(cv2, frame)
                 objects = []
+                if (self.detector is None and self.detect_on
+                        and time.monotonic() - self.detector_tried > DETECTOR_RETRY_S):
+                    self._load_detector()       # the Hailo may have been busy (another program) or come back
                 if self.detector and self.detect_on:
                     try:
                         objects = self.detector.detect(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), self.args.min_score)
