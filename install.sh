@@ -30,7 +30,7 @@ fi
 
 echo "== User navplotter (serial port access)"
 id navplotter >/dev/null 2>&1 || useradd --system --home "$DATA" --shell /usr/sbin/nologin navplotter
-usermod -aG dialout navplotter
+usermod -aG dialout,plugdev navplotter   # plugdev: some systems give the ESP32-S3 USB port (Heltec V4) to it
 mkdir -p "$DATA"
 chown -R navplotter:navplotter "$DATA"
 
