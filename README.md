@@ -70,7 +70,9 @@ usato solo a bordo.
 
 Come nell'app Android, la web app ha vento, corrente e temporali sopra la carta (pulsante ≋) e, nella voce
 **Navigazione**, la scheda **Pianifica**: orari, vento, corrente e onda per ogni tratta di una rotta, a motore o a
-vela con la polare della barca. Le previsioni sono di Open-Meteo: le scarica il Raspberry (`/meteo`) quando ha
+vela con la polare della barca. A vela i bordi vengono dalle isocrone, la strada più veloce con vento e corrente
+previsti (sulla carta si vede un'isocrona per ogni ora), oppure dalle regole semplici sulle lay-line. Le isocrone
+non conoscono la terra: la rotta va tracciata con i waypoint al largo di coste e isole. Le previsioni sono di Open-Meteo: le scarica il Raspberry (`/meteo`) quando ha
 internet, altrimenti il browser se ce l'ha lui, e restano nel browser per l'uso senza rete. Il modulo è
 `web/navplotter-meteo.js`, lo stesso file dell'app (`www/navplotter-meteo.js` in app-NavPlotter).
 
