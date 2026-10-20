@@ -76,6 +76,11 @@ non conoscono la terra: la rotta va tracciata con i waypoint al largo di coste e
 internet, altrimenti il browser se ce l'ha lui, e restano nel browser per l'uso senza rete. Il modulo è
 `web/navplotter-meteo.js`, lo stesso file dell'app (`www/navplotter-meteo.js` in app-NavPlotter).
 
+## Spostare un waypoint
+
+Sulla carta, un tocco lungo su un waypoint lo prende: segue il dito e resta dove lo lasci. Nella sua scheda c'è
+**Annulla spostamento**. Un tocco lungo sul mare continua ad aggiungere un waypoint nuovo.
+
 ## Telecamera e riconoscimento oggetti (facoltativo)
 
 Con una telecamera USB, la web app ha una voce **Telecamera** con il video dal vivo, una vista notturna (più

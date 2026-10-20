@@ -152,6 +152,8 @@
   // grid: forecast for a lattice of points over the area of the chart; lats and lons ascending
   let grid = load('np-mx-grid');
   const mx = { layer: null, last: load('np-mx-layer') || 'wind', time: nowHour(), busy: false, tried: 0, err: null };
+  // The waypoint being moved by hand (see "moving a waypoint" below)
+  const drag = { id: null, wp: null, timer: 0, down: null, from: null, moved: false };
 
   function gridAt(lat, lon, f) {
     const g = grid, nla = g.lats.length, nlo = g.lons.length;
@@ -239,6 +241,11 @@
   function drawOverlay() {
     const v = view(), c = $('map').getContext('2d');
     if (plan.show && plan.res) drawPlan(c, v);
+    if (drag.wp) {
+      const [x, y] = v.px(drag.wp.lat, drag.wp.lon);
+      c.beginPath(); c.arc(x, y, 22, 0, 7); c.lineWidth = 3; c.strokeStyle = 'rgba(255,255,255,.95)'; c.stroke();
+      c.setLineDash([5, 4]); c.strokeStyle = '#ff8f00'; c.stroke(); c.setLineDash([]);
+    }
     if (!mx.layer || !grid) return;
     const f = tIdx(grid, mx.time);
     if (f == null) return;
@@ -1062,6 +1069,73 @@
     clampTime(); renderBar();
     ensureGrid(!coversView());
   }
+
+  // ================= moving a waypoint =================
+  // A long press on a waypoint picks it up: it follows the finger and is put down where the finger leaves the
+  // chart. A long press on the sea still adds a waypoint (the page does that, a little later). The page's own
+  // handling of that touch is called off with a pointercancel, so that the chart does not pan under the finger.
+  const mapCv = $('map'), mapBox = mapCv.parentNode;
+  const cvPos = (e) => { const r = mapCv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  const cvLL = (p) => { const w = mapCv.clientWidth, h = mapCv.clientHeight, z = map.z; return { lat: yToLat(latToY(map.lat, z) + p.y - h / 2, z), lon: xToLon(lonToX(map.lon, z) + p.x - w / 2, z) }; };
+  function wpAt(p) {
+    let best = null, bd = 28;
+    for (const h of hits) { if (!h.wp) continue; const d = Math.hypot(h.x - p.x, h.y - p.y); if (d < bd) { bd = d; best = h.wp; } }
+    return best;
+  }
+  mapBox.addEventListener('pointerdown', (e) => {
+    if (!e.isTrusted || e.target !== mapCv) return;
+    clearTimeout(drag.timer);
+    if (drag.id != null) { drag.wp.lat = drag.from.lat; drag.wp.lon = drag.from.lon; drag.id = null; drag.wp = null; drawMap(); return; } // a second finger: no move
+    const p = cvPos(e), wp = wpAt(p);
+    if (!wp) return;
+    drag.down = p; drag.moved = false;
+    drag.timer = setTimeout(() => {
+      if (drag.moved) return;
+      drag.id = e.pointerId; drag.wp = wp; drag.from = { lat: wp.lat, lon: wp.lon };
+      mapCv.dispatchEvent(new PointerEvent('pointercancel', { pointerId: e.pointerId, bubbles: true }));
+      if (navigator.vibrate) navigator.vibrate(30);
+      closeSheet(); drawMap();
+    }, 500);
+  }, true);
+  mapBox.addEventListener('pointermove', (e) => {
+    if (!e.isTrusted) return;
+    const p = cvPos(e);
+    if (drag.id == null) { if (drag.down && Math.hypot(p.x - drag.down.x, p.y - drag.down.y) > 8) { drag.moved = true; clearTimeout(drag.timer); } return; }
+    if (e.pointerId !== drag.id) return;
+    const ll = cvLL(p);
+    drag.wp.lat = ll.lat; drag.wp.lon = ll.lon;
+    drawMap();
+  }, true);
+  const dragEnd = (e) => {
+    if (!e.isTrusted) return;
+    clearTimeout(drag.timer); drag.down = null;
+    if (drag.id == null || e.pointerId !== drag.id) return;
+    const wp = drag.wp, from = drag.from;
+    drag.id = null; drag.wp = null;
+    if (e.type === 'pointercancel') { wp.lat = from.lat; wp.lon = from.lon; drawMap(); return; }
+    wp.lat = Math.round(wp.lat * 1e6) / 1e6; wp.lon = Math.round(wp.lon * 1e6) / 1e6;
+    // A plan on a route through this waypoint no longer holds
+    const r = ud.routes.find((x) => x.id === plan.route);
+    if (r && r.wps.includes(wp.id)) { plan.res = null; plan.alts = null; plan.show = false; renderBar(); }
+    saveUd(); renderAll();
+    showWp(wp.id);
+    // Undo, in the waypoint's sheet
+    const row = $('sheet').querySelector('.row'), b = document.createElement('button');
+    b.className = 'btn sec'; b.textContent = L('Annulla spostamento', 'Undo move');
+    b.onclick = () => { wp.lat = from.lat; wp.lon = from.lon; saveUd(); renderAll(); closeSheet(); };
+    if (row) row.insertBefore(b, row.lastChild);
+  };
+  mapBox.addEventListener('pointerup', dragEnd, true);
+  mapBox.addEventListener('pointercancel', dragEnd, true);
+  // In the sheet of a waypoint, how to move it
+  const pageShowWp = window.showWp;
+  window.showWp = function (id) {
+    pageShowWp.apply(this, arguments);
+    const h = document.createElement('div');
+    h.className = 'hint'; h.textContent = L('Per spostarlo: tocco lungo sul waypoint e trascinalo.', 'To move it: long press on the waypoint and drag it.');
+    const row = $('sheet').querySelector('.row');
+    if (row) row.parentNode.insertBefore(h, row);
+  };
 
   // Texts follow the page language
   const pageLang = window.applyLang;
