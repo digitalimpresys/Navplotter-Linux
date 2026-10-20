@@ -1075,5 +1075,6 @@ Promise.all([
   loadUd()
 ]).then(() => { applyLang(); fillForm(); $('navChat').style.display = cfg.msg ? '' : 'none'; camStatus().then(j => { $('navCam').style.display = j ? '' : 'none'; }); poll(); setInterval(poll, 1000); });
 </script>
+<script src="navplotter-meteo.js"></script>
 </body>
 </html>

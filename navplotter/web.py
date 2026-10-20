@@ -15,12 +15,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 log = logging.getLogger("navplotter.web")
 USERDATA_MAX = 32768
+# Static files of the web app besides the page itself
+WEB_FILES = {"/navplotter-meteo.js": "application/javascript; charset=utf-8"}
+# /meteo asks these for the browser: the forecasts of the passage planning (web/navplotter-meteo.js)
+METEO_HOSTS = ("api.open-meteo.com", "marine-api.open-meteo.com")
 
 
 def make_handler(node, web_dir):
     index_path = os.path.join(web_dir, "index.html")
     with open(index_path, "rb") as f:
         index_gz = gzip.compress(f.read())
+    files_gz = {}
+    for name in WEB_FILES:
+        with open(os.path.join(web_dir, name[1:]), "rb") as f:
+            files_gz[name] = gzip.compress(f.read())
     userdata_path = os.path.join(node.s["data_dir"], "userdata.json")
     host = socket.gethostname() + ".local"
 
@@ -86,6 +94,21 @@ def make_handler(node, web_dir):
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     pass
 
+        def _meteo(self, query):
+            """/meteo?url=... fetches an Open-Meteo forecast for the browser, which may have no internet of its own."""
+            url = urllib.parse.parse_qs(query).get("url", [""])[0]
+            u = urllib.parse.urlparse(url)
+            if u.scheme != "https" or u.hostname not in METEO_HOSTS:
+                self._send(400, {"error": True, "reason": "not an Open-Meteo address"})
+                return
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "NavPlotter"}), timeout=30) as r:
+                    self._send(r.status, r.read())
+            except urllib.error.HTTPError as e:
+                self._send(e.code, e.read() or {"error": True, "reason": "HTTP %d" % e.code})
+            except (urllib.error.URLError, OSError) as e:
+                self._send(502, {"error": True, "reason": "no internet on the Raspberry Pi (%s)" % getattr(e, "reason", e)})
+
         def do_OPTIONS(self):
             self.send_response(204)
             self._cors()
@@ -104,6 +127,10 @@ def make_handler(node, web_dir):
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 self.wfile.write(index_gz)
+            elif path in files_gz:
+                self._send(200, files_gz[path], WEB_FILES[path], {"Content-Encoding": "gzip"})
+            elif path == "/meteo":
+                self._meteo(url.query)
             elif path == "/api/state":
                 self._send(200, node.state_json())
             elif path == "/api/config":
