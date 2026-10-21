@@ -16,6 +16,8 @@ set -euo pipefail
 ONNX=${1:?usage: compile.sh best.onnx calib/ [classes.json]}
 CALIB=${2:?usage: compile.sh best.onnx calib/ [classes.json]}
 CLASSES=${3:-$(dirname "$0")/classes.json}
+# The compiler reads $USER, which a root shell in a bare Docker container does not have
+export USER=${USER:-$(id -un)}
 ARCH=${HAILO_ARCH:-hailo8}          # hailo8l for the 13 TOPS AI Kit
 MODEL=${HAILO_MODEL:-yolov8s}       # the Model Zoo network the model was trained from
 # HAILO_EXTRA="--performance" squeezes more fps out of the chip, at the cost of hours of compiling
