@@ -1,5 +1,5 @@
 [Unit]
-Description=NavPlotter camera (USB camera, object recognition with the Hailo AI HAT)
+Description=NavPlotter camera (USB or network camera, object recognition with the Hailo AI HAT)
 After=network-online.target
 
 [Service]

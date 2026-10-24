@@ -38,6 +38,11 @@ main{flex:1;position:relative;overflow:hidden}
 #camMsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9fb3c8;font-size:14px;text-align:center;padding:12px}
 #camObjs .obj{display:inline-block;margin:6px 6px 0 0;padding:4px 9px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:14px}
 #camRec.on{background:var(--red);color:#fff;border-color:var(--red)}
+.ptz{position:absolute;width:52px;height:52px;border-radius:50%;border:0;background:rgba(4,18,31,.55);color:#fff;font-size:24px;display:none;touch-action:none;user-select:none;-webkit-user-select:none}
+.ptz:active,.ptz.on{background:var(--accent);color:#04121f}
+#camBox.ptzOn .ptz{display:block}
+#ptzL{left:10px;top:50%;margin-top:-26px}#ptzR{right:10px;top:50%;margin-top:-26px}
+#ptzU{top:10px;left:50%;margin-left:-26px}#ptzD{bottom:10px;left:50%;margin-left:-26px}
 #camRecs .row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 #camRecs .row span{flex:1}
 #camObjs .obj.imp{background:var(--red);color:#fff;border-color:var(--red)}
@@ -164,9 +169,24 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
         <div id="rtList"></div>
       </div></div></section>
     <section class="page" id="pCam"><div class="wrap"><h2 data-i18n="camera"></h2>
-      <div id="camBox"><img id="camImg" alt=""><div id="camMsg"></div></div>
+      <div id="camBox"><img id="camImg" alt=""><div id="camMsg"></div>
+        <button class="ptz" id="ptzL" data-move="left">&#9664;</button><button class="ptz" id="ptzR" data-move="right">&#9654;</button>
+        <button class="ptz" id="ptzU" data-move="up">&#9650;</button><button class="ptz" id="ptzD" data-move="down">&#9660;</button></div>
       <div id="camObjs"></div>
-      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button><button class="btn sec" id="camFull" data-i18n="camFull"></button><button class="btn sec" id="camRec"></button></div>
+      <div class="btns" style="margin-top:12px"><button class="btn sec" id="camNight" data-i18n="camNight"></button><button class="btn sec" id="camDetect" data-i18n="camDetect"></button><button class="btn sec" id="camFull" data-i18n="camFull"></button><button class="btn sec" id="camRec"></button><button class="btn sec" id="camSrcBtn" data-i18n="camSrc"></button></div>
+      <div class="card" id="camSrcBox" style="display:none;margin-top:12px">
+        <label data-i18n="camSrc"></label>
+        <select id="camSource"><option value="usb" data-i18n="camSrcUsb"></option><option value="ip" data-i18n="camSrcIp"></option></select>
+        <div id="camIpBox">
+          <label data-i18n="camHost"></label><input type="text" id="camHost" placeholder="192.168.1.100" autocomplete="off" autocapitalize="off">
+          <label data-i18n="camUser"></label><input type="text" id="camUser" autocomplete="off" autocapitalize="off">
+          <label data-i18n="camPass"></label><input type="password" id="camPass" autocomplete="new-password">
+          <label data-i18n="camStream"></label>
+          <select id="camStream"><option value="stream1" data-i18n="camHigh"></option><option value="stream2" data-i18n="camLow"></option></select>
+          <p class="hint" data-i18n="camIpHint"></p>
+        </div>
+        <div class="btns"><button class="btn" id="camSave" data-i18n="camSave"></button></div>
+      </div>
       <h3 data-i18n="camRecs" style="margin-top:16px"></h3><p class="hint" data-i18n="camRecsHint"></p>
       <div id="camRecs"></div>
       <p class="hint" id="camInfo"></p>
@@ -242,7 +262,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
 'use strict';
 // ---------- Texts: English is the reference language, Italian the first translation ----------
 const I18N = {
-en: {camera:'Camera', camRec:'Record', camRecOn:'Stop recording', camRecs:'Recordings', camRecsHint:'One frame a second, as the camera sees it: to train a model for the sea (training/README.md).', camRecNone:'No recordings.', camDownload:'Download', camDelete:'Delete', camFrames:'frames', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
+en: {camSrc:'Video source', camSrcUsb:'USB camera', camSrcIp:'Network camera (Tapo, RTSP/ONVIF)', camHost:'Camera address (IP)', camUser:'Camera account: user', camPass:'Camera account: password', camPassKeep:'(saved: leave empty to keep it)', camStream:'Video quality', camHigh:'High (stream1)', camLow:'Low, lighter on WiFi (stream2)', camSave:'Save', camIpHint:'In the Tapo app: camera > Settings > Advanced settings > Camera account. Make one and put it here: the Raspberry uses it for the video (RTSP) and to turn the camera (ONVIF). Privacy mode must be off.', camera:'Camera', camRec:'Record', camRecOn:'Stop recording', camRecs:'Recordings', camRecsHint:'One frame a second, as the camera sees it: to train a model for the sea (training/README.md).', camRecNone:'No recordings.', camDownload:'Download', camDelete:'Delete', camFrames:'frames', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
   quietOn:'Alarm off for this boat (until power-off)', quietOff:'Alarm on again', quietTag:'alarm off',
   chat:'Chat', send:'Send', everybody:'Everybody', message:'Message', msgFrom:'Message from', msgPlaceholder:'Write a message', msgNone:'No messages yet.',
   msgHintAll:'To everybody in range: no confirmation is asked.', msgHintOne:'Repeated until the other node confirms it. You are told when it is read.', msgHintGone:'This node is not being received now: the message may not arrive.',
@@ -283,7 +303,7 @@ en: {camera:'Camera', camRec:'Record', camRecOn:'Stop recording', camRecs:'Recor
   hintBoat2:'or the address shown on the node display. The node WiFi stays on as a way back in.', hintBoat3:'If the boat WiFi is not found, the node WiFi comes back by itself.',
   boatSsid:'Boat WiFi name', boatPass:'Boat WiFi password', passKeep:'A password is stored: leave empty to keep it.', passNone:'Leave empty for an open network.',
   iWifi:'Network', onBoat:'on the boat WiFi', boatLost:'boat WiFi not reached', nodeWifi:'node WiFi'},
-it: {camera:'Telecamera', camRec:'Registra', camRecOn:'Ferma registrazione', camRecs:'Registrazioni', camRecsHint:'Un fotogramma al secondo, come lo vede la telecamera: per addestrare un modello per il mare (training/README.md).', camRecNone:'Nessuna registrazione.', camDownload:'Scarica', camDelete:'Elimina', camFrames:'fotogrammi', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
+it: {camSrc:'Sorgente video', camSrcUsb:'Telecamera USB', camSrcIp:'Telecamera di rete (Tapo, RTSP/ONVIF)', camHost:'Indirizzo della telecamera (IP)', camUser:'Account telecamera: utente', camPass:'Account telecamera: password', camPassKeep:'(salvata: lascia vuoto per non cambiarla)', camStream:'Qualità video', camHigh:'Alta (stream1)', camLow:'Bassa, più leggera sul WiFi (stream2)', camSave:'Salva', camIpHint:'Nell\'app Tapo: telecamera > Impostazioni > Impostazioni avanzate > Account telecamera. Creane uno e scrivilo qui: il Raspberry lo usa per il video (RTSP) e per muovere la telecamera (ONVIF). La modalità privacy deve essere spenta.', camera:'Telecamera', camRec:'Registra', camRecOn:'Ferma registrazione', camRecs:'Registrazioni', camRecsHint:'Un fotogramma al secondo, come lo vede la telecamera: per addestrare un modello per il mare (training/README.md).', camRecNone:'Nessuna registrazione.', camDownload:'Scarica', camDelete:'Elimina', camFrames:'fotogrammi', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
   quietOn:'Spegni allarme per questa barca (fino allo spegnimento)', quietOff:'Riattiva allarme', quietTag:'allarme spento',
   chat:'Chat', send:'Invia', everybody:'Tutti', message:'Messaggio', msgFrom:'Messaggio da', msgPlaceholder:'Scrivi un messaggio', msgNone:'Nessun messaggio.',
   msgHintAll:'A tutti quelli in portata: non viene chiesta conferma.', msgHintOne:"Ripetuto finch\u00e9 l'altro nodo non conferma. Vieni avvisato quando viene letto.", msgHintGone:'Questo nodo ora non viene ricevuto: il messaggio potrebbe non arrivare.',
@@ -1014,11 +1034,12 @@ function renderCam() {
   $('camDetect').style.display = c && c.detector ? '' : 'none';
   const objs = c && c.ok && c.detector && c.detect ? c.objects : [];
   setHtml($('camObjs'), objs.length ? objs.map(o => '<span class="obj' + (o.important ? ' imp' : '') + '">' + esc(lang === 'it' ? o.name : o.label) + ' ' + Math.round(o.score * 100) + '%</span>').join('') : (c && c.detector && c.detect && c.ok ? '<p class="hint">' + t('camNone') + '</p>' : ''));
+  $('camBox').classList.toggle('ptzOn', !!(c && c.ok && c.ptz));
   const rec = c && c.recording;
   $('camRec').classList.toggle('on', !!rec);
   $('camRec').textContent = rec ? t('camRecOn') + ' (' + rec.frames + ')' : t('camRec');
   $('camRec').style.display = c && c.ok ? '' : 'none';
-  $('camInfo').textContent = !c ? '' : [c.device, c.fps ? c.fps + ' fps' : '', c.detector ? 'Hailo ' + c.detector : t('camNoAi') + (c.detectorError ? ': ' + c.detectorError : '')].filter(Boolean).join(' · ');
+  $('camInfo').textContent = !c ? '' : [c.device, c.fps ? c.fps + ' fps' : '', c.detector ? 'Hailo ' + c.detector : t('camNoAi') + (c.detectorError ? ': ' + c.detectorError : ''), c.ptzError ? 'Pan/tilt: ' + c.ptzError : ''].filter(Boolean).join(' · ');
 }
 let camRecsSeen = '';
 function loadRecs() {
@@ -1039,6 +1060,37 @@ function camFull() {
   else (box.requestFullscreen || box.webkitRequestFullscreen || (() => {})).call(box);
 }
 $('camFull').onclick = camFull;
+// Pan and tilt of a network camera: the move is sent again every half second while the arrow is held (the
+// camera stops by itself a second after the last one, if the stop gets lost), and stop when it is let go
+let ptzTimer = null;
+function ptzSend(move) { fetch('/camera/ptz', {method: 'POST', body: new URLSearchParams({move})}).then(r => r.json()).then(j => { if(!j.ok && j.error) $('camInfo').textContent = 'Pan/tilt: ' + j.error; }).catch(() => {}); }
+function ptzEnd(b) { if(!ptzTimer) return; clearInterval(ptzTimer); ptzTimer = null; b.classList.remove('on'); ptzSend('stop'); }
+document.querySelectorAll('.ptz').forEach(b => {
+  b.onpointerdown = e => { e.preventDefault(); e.stopPropagation(); clearInterval(ptzTimer); b.classList.add('on'); ptzSend(b.dataset.move); ptzTimer = setInterval(() => ptzSend(b.dataset.move), 500); };
+  b.onpointerup = b.onpointerleave = b.onpointercancel = () => ptzEnd(b);
+  b.oncontextmenu = e => e.preventDefault();
+  b.ondblclick = e => e.stopPropagation();
+});
+function camSrcShow() { $('camIpBox').style.display = $('camSource').value === 'ip' ? '' : 'none'; }
+$('camSource').onchange = camSrcShow;
+$('camSrcBtn').onclick = () => {
+  const box = $('camSrcBox');
+  if(box.style.display !== 'none') { box.style.display = 'none'; return; }
+  fetch('/camera/config').then(r => r.json()).then(c => {
+    $('camSource').value = c.source; $('camHost').value = c.host || ''; $('camUser').value = c.user || '';
+    $('camPass').value = ''; $('camPass').placeholder = c.hasPassword ? t('camPassKeep') : '';
+    $('camStream').value = c.stream || 'stream1';
+    camSrcShow(); box.style.display = '';
+  }).catch(() => {});
+};
+$('camSave').onclick = () => {
+  const f = {source: $('camSource').value, host: $('camHost').value, user: $('camUser').value, stream: $('camStream').value};
+  if($('camPass').value) f.password = $('camPass').value;
+  fetch('/camera/config', {method: 'POST', body: new URLSearchParams(f)}).then(r => r.json()).then(j => {
+    if(j.ok) { $('camSrcBox').style.display = 'none'; $('camImg').removeAttribute('src'); camStatus(); }
+    else alert(j.error);
+  }).catch(() => {});
+};
 $('camImg').ondblclick = camFull;
 
 // ---------- Pages ----------
