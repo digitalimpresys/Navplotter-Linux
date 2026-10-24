@@ -96,6 +96,20 @@ rosso, gli altri oggetti in giallo.
   Un modello proprio (`.hef` più `.json` con le classi) va in `/var/lib/navplotter/models` e ha la precedenza su
   quelli di sistema. Come addestrarlo: [training/README.md](training/README.md).
 
+### Telecamera di rete (Tapo C510W e simili)
+
+Al posto della USB si può usare una telecamera WiFi sulla stessa rete del Raspberry, che dà il video in RTSP e si
+muove con ONVIF (le Tapo C200, C500, C510W...).
+
+1. Nell'app Tapo: telecamera > Impostazioni > Impostazioni avanzate > **Account telecamera**: crea utente e password.
+   La modalità privacy deve essere spenta.
+2. Nella pagina **Telecamera** della web app: **Sorgente video** > Telecamera di rete, l'indirizzo IP, l'account e
+   la qualità (stream1 alta, stream2 più leggera), poi **Salva**.
+
+Se la telecamera si muove, sul video compaiono quattro frecce: tienine premuta una per girarla. Le impostazioni
+restano in `/var/lib/navplotter/camera.json`, leggibile solo dal servizio. Conviene dare alla telecamera un
+indirizzo fisso nel router.
+
 Il riconoscimento usa modelli generici (COCO): aiuta a vedere, ma **non sostituisce la guardia**.
 
 ## App Android

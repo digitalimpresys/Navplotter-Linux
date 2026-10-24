@@ -1,4 +1,4 @@
-"""python3 -m navplotter.camera: live video from a USB camera, with objects recognised by a Hailo AI accelerator.
+"""python3 -m navplotter.camera: live video from a USB or network camera, with objects recognised by a Hailo AI accelerator.
 
 A separate service from the node, so that the radio keeps working whatever happens to the camera. It listens only
 on 127.0.0.1; the node's web server passes /camera/... to it, so the web app reaches it from the same address.
@@ -9,6 +9,13 @@ on 127.0.0.1; the node's web server passes /camera/... to it, so the web app rea
   GET  /recordings                the recordings: folders of frames, one a second, to train a model of our own
   GET  /recordings/<name>.zip     one recording as a zip of JPEG files
   POST /recordings/delete         name=<name>
+  GET  /config        the camera to use: {"source": "usb"|"ip", "host", "user", "stream", "hasPassword"}
+  POST /config        source, host, user, password (left empty: unchanged), stream=stream1|stream2
+  POST /ptz           move=left|right|up|down|stop: pan and tilt of a network camera (ONVIF), sent again every
+                      half second while a button is held; the camera stops by itself a second after the last one
+
+A network camera (Tapo C510W and the like) gives its video over RTSP and is turned over ONVIF, both with the camera
+account made in the Tapo app. Its settings are kept in /var/lib/navplotter/camera.json, readable only by the service.
 
 Without the Hailo (or without its software) the video still works, without recognition.
 
@@ -19,6 +26,7 @@ Without it the classes are the 80 COCO ones.
 """
 import argparse
 import glob
+import queue
 import json
 import logging
 import os
@@ -49,6 +57,10 @@ DETECTOR_RETRY_S = 30.0
 REC_EVERY_S = 1.0           # one frame a second: enough variety for training, and not too many alike
 REC_MAX_FRAMES = 3600       # a recording stops by itself after an hour
 REC_MIN_FREE = 500 << 20    # and when less than 500 MB are left on the disk
+RTSP_PORT, ONVIF_PORT = 554, 2020        # the ports of the Tapo cameras
+PTZ_SPEED = 0.5
+PTZ_MOVES = {"left": (-1, 0), "right": (1, 0), "up": (0, 1), "down": (0, -1)}
+CONFIG_DEFAULT = {"source": "usb", "host": "", "user": "", "password": "", "stream": "stream1"}
 
 
 class Labels:
@@ -153,6 +165,75 @@ def find_hef(setting, models_dir=DATA + "/models"):
     return found[0] if found else None
 
 
+def load_config(path):
+    c = dict(CONFIG_DEFAULT)
+    try:
+        with open(path) as f:
+            c.update({k: v for k, v in json.load(f).items() if k in CONFIG_DEFAULT})
+    except (OSError, ValueError):
+        pass
+    return c
+
+
+def save_config(path, c):
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)     # it holds the camera password
+    with os.fdopen(fd, "w") as f:
+        json.dump(c, f)
+    os.replace(tmp, path)
+
+
+def rtsp_url(c):
+    auth = ""
+    if c["user"]:
+        q = lambda v: urllib.parse.quote(v, safe="")
+        auth = "%s:%s@" % (q(c["user"]), q(c["password"]))
+    return "rtsp://%s%s:%d/%s" % (auth, c["host"], RTSP_PORT, c["stream"] or "stream1")
+
+
+class LatestFrame:
+    """Reads a network stream in a thread of its own and keeps only the newest frame: when recognition is slower
+    than the camera, the frames would otherwise pile up and the video would fall behind more and more."""
+
+    def __init__(self, cap):
+        self.cap = cap
+        self.frames = queue.Queue(maxsize=1)
+        self.running = True
+        self.thread = threading.Thread(target=self._run, name="rtsp", daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        try:
+            while self.running:
+                ok, frame = self.cap.read()
+                if not ok:
+                    frame = None
+                try:
+                    self.frames.get_nowait()        # the older frame, not looked at: thrown away
+                except queue.Empty:
+                    pass
+                self.frames.put(frame)
+                if frame is None:
+                    break
+        finally:
+            # Released here, by the thread that reads: releasing it while a read is under way crashes FFmpeg
+            self.cap.release()
+
+    def read(self):
+        try:
+            frame = self.frames.get(timeout=10)
+        except queue.Empty:
+            return False, None
+        return frame is not None, frame
+
+    def set(self, *a):
+        return self.cap.set(*a)
+
+    def release(self):
+        self.running = False
+        self.thread.join(timeout=15)
+
+
 def find_camera(setting):
     if setting not in ("", "auto", None):
         return setting
@@ -181,11 +262,29 @@ class Camera:
         self.recording = None       # name of the recording in progress
         self.rec_frames = 0
         self.rec_last = 0.0
+        self.config_path = os.path.join(args.data, "camera.json")
+        self.config = load_config(self.config_path)
+        self.reopen = False         # set when the settings change: the camera is opened again
+        self.ptz = None
+        self.ptz_error = None
+        self.ptz_lock = threading.Lock()
+        self._ptz_connect()
 
     def start(self):
         threading.Thread(target=self._run, name="camera", daemon=True).start()
 
     def _open(self, cv2):
+        c = self.config
+        if c["source"] == "ip":
+            if not c["host"]:
+                raise RuntimeError("network camera without an address")
+            # TCP: over WiFi UDP loses pieces of the frames (grey smears)
+            os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|timeout;8000000")
+            cap = cv2.VideoCapture(rtsp_url(c), cv2.CAP_FFMPEG)
+            if not cap.isOpened():
+                cap.release()
+                raise RuntimeError("no video from %s (address, camera account, privacy mode off?)" % c["host"])
+            return "%s %s" % (c["host"], c["stream"]), LatestFrame(cap)
         candidates = find_camera(self.args.device)
         if isinstance(candidates, str):
             candidates = [candidates]
@@ -224,6 +323,7 @@ class Camera:
         last_error = None
         while True:
             try:
+                self.reopen = False
                 self.device, cap = self._open(cv2)
                 log.info("camera %s", self.device)
                 self.error = None
@@ -240,6 +340,9 @@ class Camera:
         t0, n = time.monotonic(), 0
         try:
             while True:
+                if self.reopen:
+                    self.reopen = False
+                    return
                 ok, frame = cap.read()
                 if not ok:
                     raise RuntimeError("the camera stopped giving frames")
@@ -269,6 +372,70 @@ class Camera:
                     self.fps, t0, n = n / (time.monotonic() - t0), time.monotonic(), 0
         finally:
             cap.release()
+
+    # ---- Settings and pan/tilt of a network camera ----
+
+    def config_public(self):
+        c = self.config
+        return {"source": c["source"], "host": c["host"], "user": c["user"], "stream": c["stream"],
+                "hasPassword": bool(c["password"])}
+
+    def set_config(self, form):
+        c = dict(self.config)
+        if form.get("source") in ("usb", "ip"):
+            c["source"] = form["source"]
+        if "host" in form:
+            c["host"] = "".join(ch for ch in form["host"].strip() if ch.isalnum() or ch in ".-:[]")
+        if "user" in form:
+            c["user"] = form["user"].strip()
+        if form.get("password"):
+            c["password"] = form["password"]
+        if form.get("stream") in ("stream1", "stream2"):
+            c["stream"] = form["stream"]
+        save_config(self.config_path, c)
+        self.config = c
+        self.reopen = True
+        self.error = "starting"
+        log.info("camera settings: %s %s", c["source"], c["host"])
+        self._ptz_connect()
+
+    def _ptz_connect(self):
+        c = self.config
+        self.ptz, self.ptz_error = None, None
+        if c["source"] != "ip" or not c["host"]:
+            return
+        from .onvif import Ptz, OnvifError
+
+        def run():
+            p = Ptz(c["host"], ONVIF_PORT, c["user"], c["password"])
+            try:
+                p.connect()
+            except OnvifError as e:
+                if c is self.config:
+                    self.ptz_error = str(e)
+                log.warning("no pan/tilt: %s", e)
+                return
+            if c is self.config:
+                self.ptz = p
+                log.info("pan/tilt on %s, profile %s", c["host"], p.profile)
+        threading.Thread(target=run, name="onvif", daemon=True).start()
+
+    def ptz_move(self, move):
+        p = self.ptz
+        if p is None:
+            return self.ptz_error or "no pan/tilt"
+        from .onvif import OnvifError
+        try:
+            with self.ptz_lock:
+                if move == "stop":
+                    p.stop()
+                elif move in PTZ_MOVES:
+                    x, y = PTZ_MOVES[move]
+                    p.move(x * PTZ_SPEED, y * PTZ_SPEED)
+        except OnvifError as e:
+            log.warning("pan/tilt: %s", e)
+            return str(e)
+        return None
 
     # ---- Recordings: the frames as the camera gives them (no boxes, no night view), to label and train on ----
 
@@ -325,7 +492,8 @@ class Camera:
         return {"ok": self.error is None and self.jpeg is not None, "device": self.device, "error": self.error,
                 "fps": round(self.fps, 1), "night": self.night, "detect": self.detect_on,
                 "detector": self.detector.name if self.detector else None, "detectorError": self.detector_error,
-                "objects": objs, "record": bool(self.recording),
+                "objects": objs, "record": bool(self.recording), "source": self.config["source"],
+                "ptz": self.ptz is not None, "ptzError": self.ptz_error,
                 "recording": {"name": self.recording, "frames": self.rec_frames} if self.recording else None}
 
 
@@ -369,6 +537,8 @@ def make_handler(cam):
                 self._json(cam.status())
             elif path == "/stream.mjpg":
                 self._stream()
+            elif path == "/config":
+                self._json(cam.config_public())
             elif path == "/recordings":
                 self._json({"recordings": cam.recordings()})
             elif path.startswith("/recordings/") and path.endswith(".zip"):
@@ -396,6 +566,18 @@ def make_handler(cam):
                 if folder and form.get("name") != cam.recording:
                     shutil.rmtree(folder, ignore_errors=True)
                 self._json({"recordings": cam.recordings()})
+                return
+            if path == "/config":
+                try:
+                    cam.set_config(form)
+                except OSError as e:
+                    self._json({"ok": False, "error": str(e)})
+                    return
+                self._json(dict(cam.config_public(), ok=True))
+                return
+            if path == "/ptz":
+                error = cam.ptz_move(form.get("move", "stop"))
+                self._json({"ok": error is None, "error": error})
                 return
             if path != "/settings":
                 self.send_error(404)
