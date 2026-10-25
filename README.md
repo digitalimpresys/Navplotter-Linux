@@ -81,6 +81,19 @@ internet, altrimenti il browser se ce l'ha lui, e restano nel browser per l'uso 
 Sulla carta, un tocco lungo su un waypoint lo prende: segue il dito e resta dove lo lasci. Nella sua scheda c'è
 **Annulla spostamento**. Un tocco lungo sul mare continua ad aggiungere un waypoint nuovo.
 
+## Uomo in mare (MOB)
+
+Su tutte le pagine della web app c'è un pulsante rosso **MOB**, sopra a tutto il resto. Un tocco mette un waypoint
+nella posizione della barca (se il GPS ha appena perso il fix, l'ultima posizione dei due minuti prima), con il
+simbolo di un salvagente e il tempo passato da quando è stato premuto; il waypoint diventa la destinazione e la rotta
+seguita si ferma. Parte un allarme (due toni ripetuti ogni pochi secondi) su ogni schermo che mostra la web app, e
+continua finché il waypoint MOB non viene eliminato nella pagina **Waypoint**.
+
+Il pulsante si sposta come i waypoint: tocco lungo, trascinarlo e lasciarlo dove non dà fastidio. La posizione resta
+in quel browser. Un tocco lungo lasciato senza trascinare conta come MOB.
+
+Il modulo è `web/navplotter-mob.js`, lo stesso file dell'app (`www/navplotter-mob.js` in app-NavPlotter).
+
 ## Telecamera e riconoscimento oggetti (facoltativo)
 
 Con una telecamera USB, la web app ha una voce **Telecamera** con il video dal vivo, una vista notturna (più

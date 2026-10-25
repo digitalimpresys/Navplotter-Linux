@@ -370,6 +370,8 @@ class Web(unittest.TestCase):
             self.assertEqual(r.headers["Access-Control-Allow-Origin"], "*")
             r = urllib.request.urlopen(base + "/navplotter-meteo.js")
             self.assertIn(b"Pianifica", gzip.decompress(r.read()))
+            r = urllib.request.urlopen(base + "/navplotter-mob.js")
+            self.assertIn(b"mobBtn", gzip.decompress(r.read()))
         finally:
             server.shutdown()
 
