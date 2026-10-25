@@ -16,7 +16,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 log = logging.getLogger("navplotter.web")
 USERDATA_MAX = 32768
 # Static files of the web app besides the page itself
-WEB_FILES = {"/navplotter-meteo.js": "application/javascript; charset=utf-8"}
+WEB_FILES = {"/navplotter-meteo.js": "application/javascript; charset=utf-8",
+             "/navplotter-mob.js": "application/javascript; charset=utf-8"}
 # /meteo asks these for the browser: the forecasts of the passage planning (web/navplotter-meteo.js)
 METEO_HOSTS = ("api.open-meteo.com", "marine-api.open-meteo.com")
 
