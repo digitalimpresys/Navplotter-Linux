@@ -42,10 +42,13 @@
     if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]);
     showPage('pMap'); setFollow(true);
     nextSound = 0; tick();
+    if (nativeAlarm()) alarmOnce();
   }
 
   // ---------- the alarm ----------
-  // Its own audio, so that it plays even while the Android app leaves the page's beeps to the phone's alarm.
+  // Its own audio. In the Android app, while its watch runs, the watch sounds the MOB on the phone's alarm, also
+  // with the screen off: the page then plays only the first alarm, at the press, so as not to sound twice.
+  const nativeAlarm = () => { try { return !!(window.NavPlotterApp && window.NavPlotterApp.watching && window.NavPlotterApp.watching()); } catch (e) { return false; } };
   let ac = null, nextSound = 0;
   function unlock() {
     if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } }
@@ -71,7 +74,7 @@
     btn.classList.toggle('on', on);
     const m = mobs().filter((p) => p.t).sort((a, b) => a.t - b.t)[0];
     sub.textContent = m ? ago(m.t) : '';
-    if (on && Date.now() >= nextSound) { alarmOnce(); nextSound = Date.now() + 2500; }
+    if (on && !nativeAlarm() && Date.now() >= nextSound) { alarmOnce(); nextSound = Date.now() + 2500; }
     if (!on) nextSound = 0;
   }
   setInterval(tick, 500);

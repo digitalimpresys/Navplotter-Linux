@@ -76,10 +76,15 @@ non conoscono la terra: la rotta va tracciata con i waypoint al largo di coste e
 internet, altrimenti il browser se ce l'ha lui, e restano nel browser per l'uso senza rete. Il modulo è
 `web/navplotter-meteo.js`, lo stesso file dell'app (`www/navplotter-meteo.js` in app-NavPlotter).
 
-## Spostare un waypoint
+## Spostare un waypoint e correggere una rotta
 
 Sulla carta, un tocco lungo su un waypoint lo prende: segue il dito e resta dove lo lasci. Nella sua scheda c'è
 **Annulla spostamento**. Un tocco lungo sul mare continua ad aggiungere un waypoint nuovo.
+
+Un tocco lungo su un tratto di rotta mette lì un waypoint nuovo, dentro la rotta tra i due estremi del tratto, già
+preso col dito: si trascina subito per girare attorno a una secca, un capo o un'isola. Nella sua scheda c'è
+**Annulla inserimento**. Vale per le rotte che si vedono sulla carta: quella seguita, quella aperta in
+**Rotte > Modifica** (tratteggiata) e quella della pianificazione mostrata sulla carta.
 
 ## Uomo in mare (MOB)
 

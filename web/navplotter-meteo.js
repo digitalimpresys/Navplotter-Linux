@@ -153,7 +153,7 @@
   let grid = load('np-mx-grid');
   const mx = { layer: null, last: load('np-mx-layer') || 'wind', time: nowHour(), busy: false, tried: 0, err: null };
   // The waypoint being moved by hand (see "moving a waypoint" below)
-  const drag = { id: null, wp: null, timer: 0, down: null, from: null, moved: false };
+  const drag = { id: null, wp: null, timer: 0, down: null, from: null, moved: false, added: null };
 
   function gridAt(lat, lon, f) {
     const g = grid, nla = g.lats.length, nlo = g.lons.length;
@@ -240,6 +240,7 @@
 
   function drawOverlay() {
     const v = view(), c = $('map').getContext('2d');
+    drawEditRoute(c, v);
     if (plan.show && plan.res) drawPlan(c, v);
     if (drag.wp) {
       const [x, y] = v.px(drag.wp.lat, drag.wp.lon);
@@ -1072,8 +1073,46 @@
 
   // ================= moving a waypoint =================
   // A long press on a waypoint picks it up: it follows the finger and is put down where the finger leaves the
-  // chart. A long press on the sea still adds a waypoint (the page does that, a little later). The page's own
+  // chart. A long press on a leg of a route shown on the chart puts a new waypoint into the route there, between
+  // the two ends of the leg, already picked up: it can be dragged at once around a shoal or a cape.
+  // A long press on the sea still adds a waypoint (the page does that, a little later). The page's own
   // handling of that touch is called off with a pointercancel, so that the chart does not pan under the finger.
+  // The routes shown: the one followed, the one open in Routes > Edit and the one of the plan on the chart.
+  const editedRoute = () => (typeof editRoute !== 'undefined' && editRoute != null ? ud.routes.find((r) => r.id === editRoute) : null);
+  function shownRoutes() {
+    const out = [];
+    for (const r of [activeRoute(), editedRoute(), plan.show ? ud.routes.find((x) => x.id === plan.route) : null]) if (r && !out.includes(r)) out.push(r);
+    return out;
+  }
+  // The route being edited, when it is not the one followed (the page draws that one): dashed, same colour
+  function drawEditRoute(c, v) {
+    const r = editedRoute();
+    if (!r || r.id === ud.route) return;
+    const pts = routeWps(r).map((p) => v.px(p.lat, p.lon));
+    if (pts.length < 2) return;
+    c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+    c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])));
+    c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 6; c.stroke();
+    c.setLineDash([10, 6]); c.strokeStyle = '#c026d3'; c.lineWidth = 3; c.stroke();
+    c.restore();
+  }
+  // The leg under the finger: the route, where the new waypoint goes in its list, and the point on the leg
+  function legAt(p) {
+    const v = view();
+    let best = null, bd = 16;
+    for (const r of shownRoutes()) {
+      const pts = r.wps.map((id, k) => ({ k, wp: ud.wps.find((q) => q.id === id) })).filter((x) => x.wp);
+      for (let i = 1; i < pts.length; i++) {
+        const [ax, ay] = v.px(pts[i - 1].wp.lat, pts[i - 1].wp.lon), [bx, by] = v.px(pts[i].wp.lat, pts[i].wp.lon);
+        const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+        if (len2 < 1) continue;
+        const f = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / len2));
+        const qx = ax + f * dx, qy = ay + f * dy, d = Math.hypot(p.x - qx, p.y - qy);
+        if (d < bd) { bd = d; best = { r, at: pts[i].k, ll: v.ll(qx, qy) }; }
+      }
+    }
+    return best;
+  }
   const mapCv = $('map'), mapBox = mapCv.parentNode;
   const cvPos = (e) => { const r = mapCv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
   const cvLL = (p) => { const w = mapCv.clientWidth, h = mapCv.clientHeight, z = map.z; return { lat: yToLat(latToY(map.lat, z) + p.y - h / 2, z), lon: xToLon(lonToX(map.lon, z) + p.x - w / 2, z) }; };
@@ -1085,13 +1124,25 @@
   mapBox.addEventListener('pointerdown', (e) => {
     if (!e.isTrusted || e.target !== mapCv) return;
     clearTimeout(drag.timer);
-    if (drag.id != null) { drag.wp.lat = drag.from.lat; drag.wp.lon = drag.from.lon; drag.id = null; drag.wp = null; drawMap(); return; } // a second finger: no move
-    const p = cvPos(e), wp = wpAt(p);
-    if (!wp) return;
+    if (drag.id != null) { // a second finger: no move, and no new waypoint
+      if (drag.added) { const w = drag.wp, r = drag.added; ud.wps = ud.wps.filter((x) => x !== w); r.wps = r.wps.filter((id) => id !== w.id); }
+      else { drag.wp.lat = drag.from.lat; drag.wp.lon = drag.from.lon; }
+      drag.id = null; drag.wp = null; drag.added = null; drawMap(); return;
+    }
+    const p = cvPos(e), wp = wpAt(p), leg = wp ? null : legAt(p);
+    if (!wp && !leg) return;
     drag.down = p; drag.moved = false;
     drag.timer = setTimeout(() => {
       if (drag.moved) return;
-      drag.id = e.pointerId; drag.wp = wp; drag.from = { lat: wp.lat, lon: wp.lon };
+      let w = wp;
+      drag.added = null;
+      if (!w) {
+        // A new waypoint on the leg, in the route between its two ends
+        w = { id: ud.nextId, name: 'WP' + ud.nextId, lat: leg.ll.lat, lon: leg.ll.lon };
+        ud.nextId++; ud.wps.push(w); leg.r.wps.splice(leg.at, 0, w.id);
+        drag.added = leg.r;
+      }
+      drag.id = e.pointerId; drag.wp = w; drag.from = { lat: w.lat, lon: w.lon };
       mapCv.dispatchEvent(new PointerEvent('pointercancel', { pointerId: e.pointerId, bubbles: true }));
       if (navigator.vibrate) navigator.vibrate(30);
       closeSheet(); drawMap();
@@ -1110,9 +1161,11 @@
     if (!e.isTrusted) return;
     clearTimeout(drag.timer); drag.down = null;
     if (drag.id == null || e.pointerId !== drag.id) return;
-    const wp = drag.wp, from = drag.from;
-    drag.id = null; drag.wp = null;
-    if (e.type === 'pointercancel') { wp.lat = from.lat; wp.lon = from.lon; drawMap(); return; }
+    const wp = drag.wp, from = drag.from, added = drag.added;
+    drag.id = null; drag.wp = null; drag.added = null;
+    // Taking a new waypoint out again, from the waypoints and from its route
+    const unAdd = () => { ud.wps = ud.wps.filter((x) => x !== wp); added.wps = added.wps.filter((id) => id !== wp.id); if (ud.dest === wp.id) ud.dest = null; };
+    if (e.type === 'pointercancel') { if (added) unAdd(); else { wp.lat = from.lat; wp.lon = from.lon; } drawMap(); return; }
     wp.lat = Math.round(wp.lat * 1e6) / 1e6; wp.lon = Math.round(wp.lon * 1e6) / 1e6;
     // A plan on a route through this waypoint no longer holds
     const r = ud.routes.find((x) => x.id === plan.route);
@@ -1121,8 +1174,12 @@
     showWp(wp.id);
     // Undo, in the waypoint's sheet
     const row = $('sheet').querySelector('.row'), b = document.createElement('button');
-    b.className = 'btn sec'; b.textContent = L('Annulla spostamento', 'Undo move');
-    b.onclick = () => { wp.lat = from.lat; wp.lon = from.lon; saveUd(); renderAll(); closeSheet(); };
+    b.className = 'btn sec'; b.textContent = added ? L('Annulla inserimento', 'Undo insert') : L('Annulla spostamento', 'Undo move');
+    b.onclick = () => {
+      if (added) { unAdd(); if (plan.route === added.id) { plan.res = null; plan.alts = null; plan.show = false; renderBar(); } }
+      else { wp.lat = from.lat; wp.lon = from.lon; }
+      saveUd(); renderAll(); closeSheet();
+    };
     if (row) row.insertBefore(b, row.lastChild);
   };
   mapBox.addEventListener('pointerup', dragEnd, true);
@@ -1132,7 +1189,7 @@
   window.showWp = function (id) {
     pageShowWp.apply(this, arguments);
     const h = document.createElement('div');
-    h.className = 'hint'; h.textContent = L('Per spostarlo: tocco lungo sul waypoint e trascinalo.', 'To move it: long press on the waypoint and drag it.');
+    h.className = 'hint'; h.textContent = L('Per spostarlo: tocco lungo sul waypoint e trascinalo. Un tocco lungo su un tratto di rotta aggiunge lì un waypoint.', 'To move it: long press on the waypoint and drag it. A long press on a leg of a route adds a waypoint there.');
     const row = $('sheet').querySelector('.row');
     if (row) row.parentNode.insertBefore(h, row);
   };
