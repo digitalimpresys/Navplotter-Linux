@@ -30,9 +30,7 @@ if [ ! -d "$H/whisper.cpp" ]; then
 fi
 cmake -S "$H/whisper.cpp" -B "$H/whisper.cpp/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$H/whisper.cpp/build" -j4 --target whisper-server >/dev/null
-for M in "$WHISPER" base; do   # base (142 MB) also, to hear the wake word quickly when listening all the time
-  [ -f "$H/models/ggml-$M.bin" ] || get "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$M.bin" "$H/models/ggml-$M.bin"
-done
+[ -f "$H/models/ggml-$WHISPER.bin" ] || get "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$WHISPER.bin" "$H/models/ggml-$WHISPER.bin"
 
 echo "== Voice: Piper, Italian voice Paola"
 if [ ! -x "$H/piper/piper" ]; then

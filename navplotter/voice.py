@@ -92,9 +92,6 @@ class Parts:
             if hit:
                 self.whisper_model = os.path.join(home, "models", hit[0])
                 break
-        # A smaller model, if there is one, for the phrases heard all the time: is it the wake word?
-        self.wake_model = next((os.path.join(home, "models", m) for pref in ("ggml-base", "ggml-tiny") for m in models
-                                if m.startswith(pref) and os.path.join(home, "models", m) != self.whisper_model), None)
         self.piper = find(os.path.join(home, "piper/piper"))
         voices = sorted(f for f in os.listdir(os.path.join(home, "voices")) if f.endswith(".onnx")) \
             if os.path.isdir(os.path.join(home, "voices")) else []
@@ -241,12 +238,6 @@ class Voice:
                                                  "--host", "127.0.0.1", "--port", str(args.stt_port),
                                                  "--prompt", PROMPT],
                               "http://127.0.0.1:%d/" % args.stt_port)
-        self.wake = None
-        if p.whisper_server and p.wake_model:
-            self.wake = Server("whisper-wake", [p.whisper_server, "-m", p.wake_model, "-l", "it", "-t", "2",
-                                                "--host", "127.0.0.1", "--port", str(args.stt_port + 2),
-                                                "--prompt", PROMPT],
-                               "http://127.0.0.1:%d/" % (args.stt_port + 2))
         if p.llama_server and p.llm_model:
             self.llm = Server("llama-server", [p.llama_server, "-m", p.llm_model, "-c", "2048", "-t", "4",
                                                "--host", "127.0.0.1", "--port", str(args.llm_port)],
@@ -341,11 +332,9 @@ class Voice:
 
     # ---- the three steps ----
 
-    def transcribe(self, wav, quick=False):
+    def transcribe(self, wav):
         port = self.args.stt_port
-        if quick and self.wake and self.wake.ok:
-            port += 2
-        elif not (self.stt and self.stt.ok):
+        if not (self.stt and self.stt.ok):
             raise RuntimeError("whisper-server not ready")
         with open(wav, "rb") as f:
             body, ctype = multipart({"response_format": "json", "temperature": "0.0"}, {"file": ("q.wav", f.read())})
@@ -493,16 +482,39 @@ class Voice:
                 log.warning("the recorder stopped%s", (": " + msg[-300:]) if msg else "")
                 time.sleep(2)               # the recorder stopped (the headset went away): again in a moment
 
+    def keep_headset_mic(self):
+        """A Bluetooth headset has its microphone only in the "headset" profile (HFP); PipeWire puts it back in the
+        music one (A2DP) when nobody else records, and then we would hear only silence. Listening all the time, we
+        keep it in the headset profile."""
+        try:
+            out = subprocess.run(["pactl", "--format=json", "list", "cards"], capture_output=True, timeout=10).stdout
+            cards = json.loads(out or b"[]")
+        except Exception:
+            return
+        for c in cards:
+            if not str(c.get("name", "")).startswith("bluez_card."):
+                continue
+            profiles = c.get("profiles") or {}
+            want = next((n for n in ("headset-head-unit-msbc", "headset-head-unit", "headset-head-unit-cvsd")
+                         if n in profiles and profiles[n].get("available", True)), None)
+            if want and not str(c.get("active_profile", "")).startswith("headset-head-unit"):
+                log.info("%s: profile %s -> %s, for the microphone", c["name"], c.get("active_profile"), want)
+                subprocess.run(["pactl", "set-card-profile", c["name"], want], capture_output=True, timeout=10)
+
     def _cut(self, stream):
         """Cuts the audio into phrases: louder than the background for 90 ms starts one, 0,8 s of quiet ends it."""
         floor = None
         pre = collections.deque(maxlen=10)
         seg, loud, quiet = None, 0, 0
         report, loudest, cut = time.monotonic() + 5, 0.0, 0
+        headset = 0
         while self.cfg["always"]:
             b = stream.read(FRAME * 2)
             if len(b) < FRAME * 2:
                 return
+            if time.monotonic() > headset:
+                threading.Thread(target=self.keep_headset_mic, daemon=True).start()
+                headset = time.monotonic() + 15
             if time.monotonic() > report:   # in the log, to set the microphone's volume
                 log.info("microphone: background %d, loudest %d, start of a phrase above %d; %d phrases",
                          floor or 0, loudest, max(MIN_RMS, (floor or 0) * 3), cut)
@@ -546,7 +558,7 @@ class Voice:
         write_wav(wav, pcm)
         following = time.monotonic() < self.follow_until
         try:
-            text = self.transcribe(wav, quick=not following)
+            text = self.transcribe(wav)
         except Exception as e:
             log.warning("speech to text: %s", e)
             return
@@ -557,18 +569,13 @@ class Voice:
         else:
             rest = after_wake(text, self.cfg["wake"])
             if rest is None:
-                log.info("heard, not for us: %s", text)
+                log.info("heard, not for us (wake word \"%s\"): %s", self.cfg["wake"], text)
                 return
             if len(rest.split()) < 2:
                 self.follow_until = time.monotonic() + FOLLOW_S
                 self._play(self.beep)
                 self.deaf_until = time.monotonic() + 0.3
                 return
-            if self.wake and self.wake.ok:          # heard by the small model: the big one writes it better
-                try:
-                    text = self.transcribe(wav) or text
-                except Exception:
-                    pass
             question = strip_wake(text, self.cfg["wake"])
         with self.lock:
             if self.state != "idle":

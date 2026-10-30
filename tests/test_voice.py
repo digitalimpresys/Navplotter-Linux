@@ -214,7 +214,7 @@ class Service(unittest.TestCase):
         play = prog("play", "import sys\nopen(%r,'a').write(open(sys.argv[1],'rb').read()[:200].decode('utf-8','replace')+'\\n')\n" % self.played)
         parts = types.SimpleNamespace(whisper_server=None, whisper_model="ggml-small.bin", piper=piper,
                                       voice="it.onnx", llama_server=None, llm_model=None, record=rec, play=play,
-                                      wake_model=None, stream=None)
+                                      stream=None)
         args = types.SimpleNamespace(home=d, node="http://127.0.0.1:%d" % self.node.server_address[1],
                                      stt_port=self.whisper.server_address[1], llm_port=self.llmsrv.server_address[1])
         self.v = V.Voice(args, parts)
@@ -286,6 +286,25 @@ class Service(unittest.TestCase):
         self.v.heard_phrase(pcm)
         self.assertTrue(self.v.status()["follow"])
         self.assertEqual(self.v.status()["heard"], "e chi c'è vicino?")
+
+    def test_headset_profile(self):
+        d = self.tmp.name
+        log = os.path.join(d, "pactl.log")
+        cards = [{"name": "alsa_card.platform-hdmi", "active_profile": "off", "profiles": {}},
+                 {"name": "bluez_card.41_42_2C_24_25_52", "active_profile": "a2dp-sink",
+                  "profiles": {"a2dp-sink": {"available": True}, "headset-head-unit": {"available": True},
+                               "headset-head-unit-msbc": {"available": False}}}]
+        with open(os.path.join(d, "pactl"), "w") as f:
+            f.write("#!%s\nimport sys,json\nif sys.argv[1:3]==['--format=json','list']: print(json.dumps(%r))\n"
+                    "else: open(%r,'a').write(' '.join(sys.argv[1:])+'\\n')\n" % (sys.executable, cards, log))
+        os.chmod(os.path.join(d, "pactl"), 0o755)
+        path = os.environ["PATH"]
+        os.environ["PATH"] = d + os.pathsep + path
+        try:
+            self.v.keep_headset_mic()
+        finally:
+            os.environ["PATH"] = path
+        self.assertEqual(open(log).read(), "set-card-profile bluez_card.41_42_2C_24_25_52 headset-head-unit\n")
 
     def test_cutter(self):
         self.v.cfg["always"] = True
