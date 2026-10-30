@@ -72,12 +72,14 @@ def make_handler(node, web_dir):
             return form
 
         def _camera(self, path, body=None):
-            """/camera/... goes to the camera service (python3 -m navplotter.camera), the video streamed as it comes."""
-            url = "http://127.0.0.1:%d/%s" % (node.s["camera_port"], path[len("/camera/"):])
+            """/camera/... goes to the camera service (python3 -m navplotter.camera), the video streamed as it comes;
+            /voice/... to the voice assistant (python3 -m navplotter.voice) in the same way."""
+            service = "camera" if path.startswith("/camera/") else "voice"
+            url = "http://127.0.0.1:%d/%s" % (node.s[service + "_port"], path[len(service) + 2:])
             try:
                 r = urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=10)
             except (urllib.error.URLError, OSError):
-                self._send(503, {"ok": False, "error": "camera service not running"})
+                self._send(503, {"ok": False, "error": "%s service not running" % service})
                 return
             with r:
                 self.send_response(r.status)
@@ -118,7 +120,7 @@ def make_handler(node, web_dir):
         def do_GET(self):
             url = urllib.parse.urlparse(self.path)
             path = url.path
-            if path.startswith("/camera/"):
+            if path.startswith(("/camera/", "/voice/")):
                 self._camera(path)
             elif path == "/":
                 self.send_response(200)
@@ -166,7 +168,7 @@ def make_handler(node, web_dir):
         def do_POST(self):
             path = urllib.parse.urlparse(self.path).path
             body = self._body()
-            if path.startswith("/camera/"):
+            if path.startswith(("/camera/", "/voice/")):
                 self._camera(path, body)
             elif path == "/api/config":
                 node.apply_config(self._form(body))

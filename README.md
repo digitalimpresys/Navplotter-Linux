@@ -130,6 +130,48 @@ indirizzo fisso nel router.
 
 Il riconoscimento usa modelli generici (COCO): aiuta a vedere, ma **non sostituisce la guardia**.
 
+## Assistente vocale (facoltativo)
+
+Un assistente che si usa a voce, tutto sul Raspberry e senza internet: il riconoscimento della voce con
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp), le risposte dai dati del nodo, la voce con
+[Piper](https://github.com/rhasspy/piper) e, se lo installi, un piccolo modello linguistico con
+[llama.cpp](https://github.com/ggml-org/llama.cpp) per le domande libere.
+
+Microfono e altoparlante sono quelli del Raspberry: una cuffia Bluetooth o un vivavoce. Si installa con l'utente
+del desktop, quello che ha la cuffia (non con sudo):
+
+```
+bash /opt/navplotter/tools/voice-install.sh
+NAVPLOTTER_LLM=1 bash /opt/navplotter/tools/voice-install.sh     # anche il modello linguistico
+```
+
+Scarica circa 550 MB (con il modello linguistico 1,1 GB in più, o 2 GB con `NAVPLOTTER_LLM_MODEL=3b`); se si interrompe, rilancialo e riprende.
+Nella web app compare il pulsante del microfono in basso a destra: tocca, parla, tocca di nuovo. Si sente un
+segnale quando ascolta. La risposta arriva in cuffia ed è scritta anche sullo schermo. Si possono anche scrivere
+le domande.
+
+Domande che capisce: dove siamo, a che velocità andiamo, quanto manca al prossimo waypoint (con l'ora di
+arrivo e il resto della rotta), chi c'è vicino, ci sono allarmi, ci sono messaggi, che ore sono, e "manda un
+messaggio a tutti ..." o "a <nome> ...". Le altre domande vanno al modello linguistico, se c'è.
+
+Nel pannello dell'assistente (tieni premuto il pulsante del microfono per aprirlo):
+
+- **Sempre in ascolto**: non serve toccare niente. Di' la parola di attivazione (di serie "computer") e la
+  domanda, per esempio "computer, quanto manca al waypoint?". Con la parola da sola risponde con un segnale e
+  aspetta la domanda. Subito dopo una risposta si può continuare senza ripetere la parola, come in una
+  conversazione. Con una cuffia Bluetooth il microfono resta acceso: il servizio tiene la cuffia nel profilo "vivavoce"
+  (HFP, l'unico con il microfono; la musica si sente in mono) e la batteria dura meno.
+- **Avviso fuori rotta**: se per mezzo minuto la rotta sul fondo (COG del GPS: non c'è una bussola) si scosta
+  dalla direzione del waypoint di destinazione più dei gradi impostati (di serie 20), lo dice ("accosta di 25
+  gradi a sinistra") e lo ripete ogni 2 minuti; quando si torna in rotta, lo dice. Sotto 1,5 nodi tace.
+- **Dialogo libero**: con il modello linguistico installato, le domande lunghe e quelle che non sono comandi
+  vanno a lui, che ricorda le ultime battute e comincia a parlare appena ha la prima frase.
+
+- Il servizio è `navplotter-voice` dell'utente: `systemctl --user status navplotter-voice`,
+  log con `sudo journalctl _SYSTEMD_USER_UNIT=navplotter-voice.service -f` (Raspberry Pi OS tiene il log degli
+  utenti nel giornale di sistema).
+- Il modello linguistico non sa il meteo e può sbagliare: per i dati di navigazione valgono le risposte dirette.
+
 ## App Android
 
 L'API JSON è la stessa dei nodi (`/api/state`, `/api/config`, `/api/messages`...) e risponde anche alle richieste
