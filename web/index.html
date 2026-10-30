@@ -55,6 +55,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #vClose{float:right;background:none;border:0;color:var(--dim);font-size:22px;line-height:1;padding:0 0 0 8px}
 #vPanel .q{color:var(--dim);margin-bottom:6px}
 #vPanel .row{display:flex;gap:6px;margin-top:8px}
+#vBtn.hearing{border-color:var(--green);box-shadow:0 0 0 3px rgba(47,209,107,.35),0 2px 10px rgba(0,0,0,.4)}
+#vPanel .set{margin-top:10px;padding-top:8px;border-top:1px solid var(--line);color:var(--dim);font-size:14px;line-height:2}
+#vPanel .set input{flex:none;width:auto;padding:4px 6px;font-size:14px}
+#vPanel .set input[type=checkbox]{width:18px;height:18px;vertical-align:middle;margin:0 6px 0 0}
 #vPanel input{flex:1;padding:8px;border-radius:8px;border:1px solid var(--line);background:#0b1d33;color:var(--text);font-size:15px}
 #mapBtns{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:8px}
 #mapBtns button{width:46px;height:46px;border-radius:10px;border:1px solid var(--line);background:rgba(18,41,74,.92);color:var(--text);font-size:24px;font-weight:700}
@@ -257,7 +261,9 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
       <div class="card"><div class="kv" id="info"></div></div>
     </div></section>
     <div id="vPanel"><button id="vClose">&times;</button><div class="q" id="vHeard"></div><div id="vReply"></div>
-      <div class="row"><input type="text" id="vText" autocomplete="off"><button class="btn sec" id="vSend">&#10148;</button></div></div>
+      <div class="row"><input type="text" id="vText" autocomplete="off"><button class="btn sec" id="vSend">&#10148;</button></div>
+      <div class="set"><label><input type="checkbox" id="vAlways"><span id="vAlwaysL"></span></label> <input type="text" id="vWake" size="9" autocomplete="off"><br>
+        <label><input type="checkbox" id="vCourse"><span id="vCourseL"></span></label> <input type="number" id="vDeg" min="5" max="90" step="5" style="width:4.5em"> &deg;</div></div>
     <button id="vBtn" title="">&#127908;</button>
   </main>
   <nav id="nav">
@@ -274,7 +280,7 @@ nav .badge{position:absolute;top:3px;left:55%;margin:0}
 'use strict';
 // ---------- Texts: English is the reference language, Italian the first translation ----------
 const I18N = {
-en: {vListening:'Listening... tap again when you are done.', vThinking:'Thinking...', vYou:'You', vType:'or type a question', vNotReady:'Voice recognition not ready (tools/voice-install.sh).', vTitle:'Voice assistant: tap and speak', camSrc:'Video source', camSrcUsb:'USB camera', camSrcIp:'Network camera (Tapo, RTSP/ONVIF)', camHost:'Camera address (IP)', camUser:'Camera account: user', camPass:'Camera account: password', camPassKeep:'(saved: leave empty to keep it)', camStream:'Video quality', camHigh:'High (stream1)', camLow:'Low, lighter on WiFi (stream2)', camSave:'Save', camIpHint:'In the Tapo app: camera > Settings > Advanced settings > Camera account. Make one and put it here: the Raspberry uses it for the video (RTSP) and to turn the camera (ONVIF). Privacy mode must be off.', camera:'Camera', camRec:'Record', camRecOn:'Stop recording', camRecs:'Recordings', camRecsHint:'One frame a second, as the camera sees it: to train a model for the sea (training/README.md).', camRecNone:'No recordings.', camDownload:'Download', camDelete:'Delete', camFrames:'frames', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
+en: {vAlways:'Always listening, wake word', vCourse:'Warn me off course by more than', vSay:'Say "%s" and your question.', vFollow:'Go on, I am listening.', vListening:'Listening... tap again when you are done.', vThinking:'Thinking...', vYou:'You', vType:'or type a question', vNotReady:'Voice recognition not ready (tools/voice-install.sh).', vTitle:'Voice assistant: tap and speak', camSrc:'Video source', camSrcUsb:'USB camera', camSrcIp:'Network camera (Tapo, RTSP/ONVIF)', camHost:'Camera address (IP)', camUser:'Camera account: user', camPass:'Camera account: password', camPassKeep:'(saved: leave empty to keep it)', camStream:'Video quality', camHigh:'High (stream1)', camLow:'Low, lighter on WiFi (stream2)', camSave:'Save', camIpHint:'In the Tapo app: camera > Settings > Advanced settings > Camera account. Make one and put it here: the Raspberry uses it for the video (RTSP) and to turn the camera (ONVIF). Privacy mode must be off.', camera:'Camera', camRec:'Record', camRecOn:'Stop recording', camRecs:'Recordings', camRecsHint:'One frame a second, as the camera sees it: to train a model for the sea (training/README.md).', camRecNone:'No recordings.', camDownload:'Download', camDelete:'Delete', camFrames:'frames', camFull:'Full screen', camNight:'Night view', camDetect:'Recognition', camOff:'Camera not found', camNoAi:'Recognition not available', camStarting:'Starting the camera...', camNone:'Nothing recognised', map:'Map', compass:'Compass', nearby:'Nearby', waypoints:'Waypoints', setup:'Setup',
   quietOn:'Alarm off for this boat (until power-off)', quietOff:'Alarm on again', quietTag:'alarm off',
   chat:'Chat', send:'Send', everybody:'Everybody', message:'Message', msgFrom:'Message from', msgPlaceholder:'Write a message', msgNone:'No messages yet.',
   msgHintAll:'To everybody in range: no confirmation is asked.', msgHintOne:'Repeated until the other node confirms it. You are told when it is read.', msgHintGone:'This node is not being received now: the message may not arrive.',
@@ -315,7 +321,7 @@ en: {vListening:'Listening... tap again when you are done.', vThinking:'Thinking
   hintBoat2:'or the address shown on the node display. The node WiFi stays on as a way back in.', hintBoat3:'If the boat WiFi is not found, the node WiFi comes back by itself.',
   boatSsid:'Boat WiFi name', boatPass:'Boat WiFi password', passKeep:'A password is stored: leave empty to keep it.', passNone:'Leave empty for an open network.',
   iWifi:'Network', onBoat:'on the boat WiFi', boatLost:'boat WiFi not reached', nodeWifi:'node WiFi'},
-it: {vListening:'Ti ascolto... tocca di nuovo quando hai finito.', vThinking:'Ci penso...', vYou:'Tu', vType:'oppure scrivi una domanda', vNotReady:'Riconoscimento vocale non pronto (tools/voice-install.sh).', vTitle:'Assistente vocale: tocca e parla', camSrc:'Sorgente video', camSrcUsb:'Telecamera USB', camSrcIp:'Telecamera di rete (Tapo, RTSP/ONVIF)', camHost:'Indirizzo della telecamera (IP)', camUser:'Account telecamera: utente', camPass:'Account telecamera: password', camPassKeep:'(salvata: lascia vuoto per non cambiarla)', camStream:'Qualità video', camHigh:'Alta (stream1)', camLow:'Bassa, più leggera sul WiFi (stream2)', camSave:'Salva', camIpHint:'Nell\'app Tapo: telecamera > Impostazioni > Impostazioni avanzate > Account telecamera. Creane uno e scrivilo qui: il Raspberry lo usa per il video (RTSP) e per muovere la telecamera (ONVIF). La modalità privacy deve essere spenta.', camera:'Telecamera', camRec:'Registra', camRecOn:'Ferma registrazione', camRecs:'Registrazioni', camRecsHint:'Un fotogramma al secondo, come lo vede la telecamera: per addestrare un modello per il mare (training/README.md).', camRecNone:'Nessuna registrazione.', camDownload:'Scarica', camDelete:'Elimina', camFrames:'fotogrammi', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
+it: {vAlways:'Sempre in ascolto, parola di attivazione', vCourse:'Avvisa se fuori rotta di oltre', vSay:'Di\' «%s» e la domanda.', vFollow:'Dimmi pure, ti ascolto.', vListening:'Ti ascolto... tocca di nuovo quando hai finito.', vThinking:'Ci penso...', vYou:'Tu', vType:'oppure scrivi una domanda', vNotReady:'Riconoscimento vocale non pronto (tools/voice-install.sh).', vTitle:'Assistente vocale: tocca e parla', camSrc:'Sorgente video', camSrcUsb:'Telecamera USB', camSrcIp:'Telecamera di rete (Tapo, RTSP/ONVIF)', camHost:'Indirizzo della telecamera (IP)', camUser:'Account telecamera: utente', camPass:'Account telecamera: password', camPassKeep:'(salvata: lascia vuoto per non cambiarla)', camStream:'Qualità video', camHigh:'Alta (stream1)', camLow:'Bassa, più leggera sul WiFi (stream2)', camSave:'Salva', camIpHint:'Nell\'app Tapo: telecamera > Impostazioni > Impostazioni avanzate > Account telecamera. Creane uno e scrivilo qui: il Raspberry lo usa per il video (RTSP) e per muovere la telecamera (ONVIF). La modalità privacy deve essere spenta.', camera:'Telecamera', camRec:'Registra', camRecOn:'Ferma registrazione', camRecs:'Registrazioni', camRecsHint:'Un fotogramma al secondo, come lo vede la telecamera: per addestrare un modello per il mare (training/README.md).', camRecNone:'Nessuna registrazione.', camDownload:'Scarica', camDelete:'Elimina', camFrames:'fotogrammi', camFull:'Schermo intero', camNight:'Vista notturna', camDetect:'Riconoscimento', camOff:'Telecamera non trovata', camNoAi:'Riconoscimento non disponibile', camStarting:'Avvio della telecamera...', camNone:'Nessun oggetto riconosciuto', map:'Mappa', compass:'Bussola', nearby:'Vicini', waypoints:'Waypoint', setup:'Impostazioni',
   quietOn:'Spegni allarme per questa barca (fino allo spegnimento)', quietOff:'Riattiva allarme', quietTag:'allarme spento',
   chat:'Chat', send:'Invia', everybody:'Tutti', message:'Messaggio', msgFrom:'Messaggio da', msgPlaceholder:'Scrivi un messaggio', msgNone:'Nessun messaggio.',
   msgHintAll:'A tutti quelli in portata: non viene chiesta conferma.', msgHintOne:"Ripetuto finch\u00e9 l'altro nodo non conferma. Vieni avvisato quando viene letto.", msgHintGone:'Questo nodo ora non viene ricevuto: il messaggio potrebbe non arrivare.',
@@ -1032,17 +1038,25 @@ function vStatus() {
 function vPoll() {
   clearTimeout(vTimer);
   const busy = voice && voice.state !== 'idle';
-  vTimer = setTimeout(() => vStatus().then(vPoll), busy ? 400 : (vOpen ? 1500 : 30000));
+  vTimer = setTimeout(() => vStatus().then(vPoll), busy ? 400 : (vOpen ? 1500 : (voice && voice.hearing ? 3000 : 30000)));
 }
 function renderVoice() {
   const v = voice, b = $('vBtn');
   b.style.display = v ? 'block' : 'none';
   if(!v) { $('vPanel').style.display = 'none'; return; }
   b.title = t('vTitle');
-  b.className = v.state;
+  b.className = v.state + (v.hearing && v.state === 'idle' ? ' hearing' : '');
   $('vPanel').style.display = vOpen ? 'block' : 'none';
   $('vText').placeholder = t('vType');
-  $('vHeard').textContent = v.state === 'listening' ? t('vListening') : v.heard ? t('vYou') + ': ' + v.heard : '';
+  const c = v.config || {};
+  $('vHeard').textContent = v.state === 'listening' ? t('vListening') : v.follow && v.state === 'idle' ? t('vFollow')
+    : v.heard ? t('vYou') + ': ' + v.heard : v.hearing ? t('vSay').replace('%s', c.wake || '') : '';
+  $('vAlwaysL').textContent = t('vAlways');
+  $('vCourseL').textContent = t('vCourse');
+  $('vAlways').checked = !!c.always;
+  $('vCourse').checked = !!c.course;
+  if(document.activeElement !== $('vWake')) $('vWake').value = c.wake || '';
+  if(document.activeElement !== $('vDeg')) $('vDeg').value = c.courseDeg || 20;
   $('vReply').textContent = v.state === 'thinking' ? t('vThinking') : (v.reply || (!v.stt ? t('vNotReady') : '')) + (v.error && v.state === 'idle' ? ' (' + v.error + ')' : '');
 }
 function vPost(path, form) {
@@ -1059,6 +1073,10 @@ function vAsk() { const q = $('vText').value.trim(); if(!q) return; $('vText').v
 $('vSend').onclick = vAsk;
 $('vClose').onclick = () => { vOpen = false; renderVoice(); };
 $('vText').onkeydown = e => { if(e.key === 'Enter') { e.preventDefault(); vAsk(); } };
+function vConfig() {
+  vPost('config', {always: $('vAlways').checked ? '1' : '0', wake: $('vWake').value, course: $('vCourse').checked ? '1' : '0', courseDeg: $('vDeg').value});
+}
+['vAlways', 'vWake', 'vCourse', 'vDeg'].forEach(id => { $(id).onchange = vConfig; });
 vStatus().then(vPoll);
 
 // ---------- Camera (Raspberry Pi with the navplotter-camera service) ----------

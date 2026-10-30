@@ -145,7 +145,7 @@ bash /opt/navplotter/tools/voice-install.sh
 NAVPLOTTER_LLM=1 bash /opt/navplotter/tools/voice-install.sh     # anche il modello linguistico
 ```
 
-Scarica circa 550 MB (con il modello linguistico 1,6 GB in più); se si interrompe, rilancialo e riprende.
+Scarica circa 700 MB (con il modello linguistico 1,1 GB in più, o 2 GB con `NAVPLOTTER_LLM_MODEL=3b`); se si interrompe, rilancialo e riprende.
 Nella web app compare il pulsante del microfono in basso a destra: tocca, parla, tocca di nuovo. Si sente un
 segnale quando ascolta. La risposta arriva in cuffia ed è scritta anche sullo schermo. Si possono anche scrivere
 le domande.
@@ -153,6 +153,19 @@ le domande.
 Domande che capisce: dove siamo, a che velocità andiamo, quanto manca al prossimo waypoint (con l'ora di
 arrivo e il resto della rotta), chi c'è vicino, ci sono allarmi, ci sono messaggi, che ore sono, e "manda un
 messaggio a tutti ..." o "a <nome> ...". Le altre domande vanno al modello linguistico, se c'è.
+
+Nel pannello dell'assistente (tieni premuto il pulsante del microfono per aprirlo):
+
+- **Sempre in ascolto**: non serve toccare niente. Di' la parola di attivazione (di serie "computer") e la
+  domanda, per esempio "computer, quanto manca al waypoint?". Con la parola da sola risponde con un segnale e
+  aspetta la domanda. Subito dopo una risposta si può continuare senza ripetere la parola, come in una
+  conversazione. Con una cuffia Bluetooth il microfono resta acceso: la cuffia resta nel profilo "vivavoce" e la
+  batteria dura meno.
+- **Avviso fuori rotta**: se per mezzo minuto la rotta sul fondo (COG del GPS: non c'è una bussola) si scosta
+  dalla direzione del waypoint di destinazione più dei gradi impostati (di serie 20), lo dice ("accosta di 25
+  gradi a sinistra") e lo ripete ogni 2 minuti; quando si torna in rotta, lo dice. Sotto 1,5 nodi tace.
+- **Dialogo libero**: con il modello linguistico installato, le domande lunghe e quelle che non sono comandi
+  vanno a lui, che ricorda le ultime battute e comincia a parlare appena ha la prima frase.
 
 - Il servizio è `navplotter-voice` dell'utente: `systemctl --user status navplotter-voice`,
   log con `journalctl --user -u navplotter-voice -f`.

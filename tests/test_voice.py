@@ -1,6 +1,8 @@
 """Tests of the voice assistant: the answers (navplotter/assistant.py) and the service (navplotter/voice.py) with fake
 programs in place of the recorder, whisper-server, Piper and the player."""
+import array
 import datetime
+import io
 import json
 import os
 import sys
@@ -91,13 +93,45 @@ class Answers(unittest.TestCase):
         self.assertEqual(self.ask("raccontami una barzelletta"), (None, None))
 
     def test_llm_context(self):
-        msgs = A.llm_messages("che facciamo?", boat(), NOW)
-        ctx = msgs[0]["content"]
+        msgs = A.llm_messages("che facciamo?", boat(), NOW, history=[("ciao", "Ciao skipper."), ("", "fuori rotta")])
+        self.assertEqual(msgs[0], {"role": "system", "content": A.SYSTEM})       # the same every time: kept computed
+        self.assertEqual(msgs[1:3], [{"role": "user", "content": "ciao"}, {"role": "assistant", "content": "Ciao skipper."}])
+        ctx = msgs[3]["content"]
         self.assertIn("Prossimo waypoint: Boa", ctx)
         self.assertIn("Vicino: Pippa (barca) a 190 metri", ctx)
         self.assertIn("IN ALLARME COLLISIONE", ctx)
         self.assertNotIn("Vecchio", ctx)
-        self.assertEqual(msgs[1], {"role": "user", "content": "che facciamo?"})
+        self.assertTrue(ctx.endswith("Domanda: che facciamo?"))
+        self.assertEqual(len(msgs), 4)
+
+    def test_off_course(self):
+        err, cog, brg, name = A.course_error(boat())        # going 135, Boa is at 90: 45 degrees to port
+        self.assertEqual((round(err), round(cog), round(brg), name), (-45, 135, 90, "Boa"))
+        self.assertEqual(A.off_course_text(err, cog, brg, name),
+                         "Attenzione, fuori rotta. Andiamo a 135 gradi, Boa è a 90 gradi. Accosta di 45 gradi a sinistra.")
+        d = boat()
+        d["state"]["own"]["cog"] = 350                      # across north: 100 degrees to starboard
+        self.assertEqual(round(A.course_error(d)[0]), 100)
+        self.assertIn("a dritta", A.off_course_text(*A.course_error(d)))
+        d["state"]["own"]["sog"] = 1.0                      # too slow for the course to mean anything
+        self.assertIsNone(A.course_error(d))
+        d = boat()
+        d["userdata"]["dest"] = None
+        self.assertIsNone(A.course_error(d))
+
+
+class Helpers(unittest.TestCase):
+    def test_wake_word(self):
+        self.assertEqual(V.after_wake("Computer, dove siamo?", "computer"), "dove siamo")
+        self.assertEqual(V.after_wake("Ehm computer quanto manca", "computer"), "quanto manca")
+        self.assertEqual(V.after_wake("Ok barca, che ore sono", "ok barca, computer"), "che ore sono")
+        self.assertEqual(V.after_wake("Computer.", "computer"), "")
+        self.assertIsNone(V.after_wake("passami la cima che il computer è giù", "computer"))
+        self.assertEqual(V.strip_wake("Computer, quanto manca al porto?", "computer"), "quanto manca al porto?")
+
+    def test_sentences(self):
+        self.assertEqual(list(V.sentences(["Ciao", " skipper. Il ve", "nto è 12,5 nodi! E poi", " basta"])),
+                         ["Ciao skipper.", "Il vento è 12,5 nodi!", "E poi basta"])
 
 
 def serve(handler):
@@ -148,7 +182,23 @@ class Service(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(b)
 
-        self.node, self.whisper = serve(Node), serve(Whisper)
+        self.llm_said = ["Bella domanda. ", "Il mare", " oggi è calmo", ". Buon vento!"]
+
+        class Llm(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                t.llm_asked = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                for piece in t.llm_said:
+                    self.wfile.write(("data: %s\n\n" % json.dumps({"choices": [{"delta": {"content": piece}}]})).encode())
+                    self.wfile.flush()
+                self.wfile.write(b"data: [DONE]\n\n")
+
+        self.node, self.whisper, self.llmsrv = serve(Node), serve(Whisper), serve(Llm)
         # Fake programs: the recorder writes a file and waits for ^C, Piper writes what it was given, the player logs
         self.played = os.path.join(d, "played.log")
         prog = lambda name, code: (open(os.path.join(d, name), "w").write("#!%s\n%s" % (sys.executable, code)),
@@ -159,15 +209,18 @@ class Service(unittest.TestCase):
                               "open(out,'w').write(sys.stdin.read())\n")
         play = prog("play", "import sys\nopen(%r,'a').write(open(sys.argv[1],'rb').read()[:200].decode('utf-8','replace')+'\\n')\n" % self.played)
         parts = types.SimpleNamespace(whisper_server=None, whisper_model="ggml-small.bin", piper=piper,
-                                      voice="it.onnx", llama_server=None, llm_model=None, record=rec, play=play)
+                                      voice="it.onnx", llama_server=None, llm_model=None, record=rec, play=play,
+                                      wake_model=None, stream=None)
         args = types.SimpleNamespace(home=d, node="http://127.0.0.1:%d" % self.node.server_address[1],
-                                     stt_port=self.whisper.server_address[1], llm_port=1)
+                                     stt_port=self.whisper.server_address[1], llm_port=self.llmsrv.server_address[1])
         self.v = V.Voice(args, parts)
+        self.v.cfg["course"] = False
         self.v.stt = types.SimpleNamespace(ok=True)
 
     def tearDown(self):
         self.node.shutdown()
         self.whisper.shutdown()
+        self.llmsrv.shutdown()
         self.tmp.cleanup()
 
     def wait_idle(self):
@@ -207,6 +260,69 @@ class Service(unittest.TestCase):
         self.v.stop_listening()
         self.wait_idle()
         self.assertEqual(self.v.status()["reply"], "Non ho sentito niente.")
+
+    def test_wake_word_phrase(self):
+        self.v.cfg["always"] = True
+        pcm = bytes(RATE_PCM)
+        self.heard = "ma che ore sono"                     # not for us
+        self.v.heard_phrase(pcm)
+        self.assertEqual((self.v.state, self.v.reply), ("idle", ""))
+        self.heard = " Computer, che ore sono?"            # wake word and question together
+        self.v.heard_phrase(pcm)
+        self.wait_idle()
+        self.assertEqual(self.v.status()["heard"], "che ore sono?")
+        self.assertTrue(self.v.status()["reply"].startswith("Sono le "))
+        self.assertTrue(self.v.status()["follow"])         # the next phrase needs no wake word
+        self.heard = "e chi c'è vicino?"
+        self.v.heard_phrase(pcm)
+        self.wait_idle()
+        self.assertTrue(self.v.status()["reply"].startswith("Ci sono 2 nodi vicini"))
+        self.v.follow_until = 0
+        self.heard = "Computer."                           # the wake word alone: a beep, then the question
+        self.v.heard_phrase(pcm)
+        self.assertTrue(self.v.status()["follow"])
+        self.assertEqual(self.v.status()["heard"], "e chi c'è vicino?")
+
+    def test_cutter(self):
+        self.v.cfg["always"] = True
+        quiet, loud = bytes(V.FRAME * 2), array.array("h", [3000, -3000] * (V.FRAME // 2)).tobytes()
+        audio = io.BytesIO(quiet * 30 + loud * 30 + quiet * 40 + loud * 2 + quiet * 40)
+        self.v._cut(audio)
+        pcm = self.v.phrases.get_nowait()
+        self.assertEqual(len(pcm) // (V.FRAME * 2), 10 + 27 + 27)   # 10 before (3 loud), the phrase, 0,8 s after
+        self.assertTrue(self.v.phrases.empty())                    # a click is not a phrase
+
+    def test_free_dialogue_streams_sentences(self):
+        self.v.llm = types.SimpleNamespace(ok=True)
+        self.v.ask("secondo te com'è il mare oggi qui in laguna?")
+        self.wait_idle()
+        self.assertEqual(self.v.status()["reply"], "Bella domanda. Il mare oggi è calmo. Buon vento!")
+        self.assertEqual(open(self.played).read().splitlines(), ["Bella domanda.", "Il mare oggi è calmo.", "Buon vento!"])
+        self.assertTrue(self.llm_asked["stream"])
+        self.v.ask("Dove siamo?")                          # a short command: answered at once, from the data
+        self.wait_idle()
+        self.assertTrue(self.v.status()["reply"].startswith("Siamo a 45 gradi"))
+        self.v.ask("e allora cosa mi consigli di fare adesso con questo vento?")
+        self.wait_idle()
+        roles = [m["role"] for m in self.llm_asked["messages"]]
+        self.assertEqual(roles, ["system", "user", "assistant", "user", "assistant", "user"])
+
+    def test_off_course_warning(self):
+        self.v.cfg.update(course=True, courseDeg=20)
+        old = V.COURSE_EVERY_S
+        V.COURSE_EVERY_S = 0.02
+        try:
+            threading.Thread(target=self.v._course, daemon=True).start()
+            for _ in range(200):
+                if os.path.exists(self.played) and "fuori rotta" in open(self.played).read():
+                    break
+                time.sleep(0.02)
+        finally:
+            V.COURSE_EVERY_S = old
+        self.assertIn("Accosta di 45 gradi a sinistra.", open(self.played).read())
+
+
+RATE_PCM = 2 * 16000
 
 
 if __name__ == "__main__":

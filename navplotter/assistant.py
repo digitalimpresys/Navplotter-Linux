@@ -249,11 +249,37 @@ def send_message(original, to, b):
     return "Mando a tutti: %s." % o, ("send", "00000000", "", o)
 
 
-SYSTEM = ("Sei l'assistente di bordo di NavPlotter, su una barca a vela. Rispondi in italiano, in una o due frasi "
-          "brevi da leggere ad alta voce, senza elenchi né simboli. Usa solo i dati qui sotto; se non bastano, "
-          "dillo. Non inventare posizioni, distanze o meteo.\n\nDati di bordo:\n")
+def course_error(data, now=None):
+    """How far our course over ground is from the bearing to the destination waypoint, in degrees (positive: the
+    waypoint is to starboard), with (cog, bearing, waypoint name). None when it cannot be said: no destination, no
+    fix or no valid course, too slow for the course to mean anything, or almost at the waypoint."""
+    b = Boat(data, now)
+    if not (b.dest and b.fix and b.own.get("cogValid", True)) or b.own.get("sog", 0) < 1.5:
+        return None
+    d, brg = dist_brg(b.own["lat"], b.own["lon"], b.dest["lat"], b.dest["lon"])
+    if d < 0.05:
+        return None
+    cog = b.own.get("cog", 0)
+    return (brg - cog + 540) % 360 - 180, cog, brg, b.dest.get("name") or "il waypoint"
 
 
-def llm_messages(text, data, now=None):
-    return [{"role": "system", "content": SYSTEM + Boat(data, now).context()},
-            {"role": "user", "content": text}]
+def off_course_text(err, cog, brg, name):
+    return "Attenzione, fuori rotta. Andiamo a %d gradi, %s è a %d gradi. Accosta di %d gradi a %s." % (
+        round(cog) % 360, name, round(brg) % 360, round(abs(err)), "dritta" if err > 0 else "sinistra")
+
+
+SYSTEM = ("Sei l'assistente di bordo di NavPlotter, su una barca a vela, e parli con lo skipper a voce. Rispondi "
+          "in italiano, in frasi brevi da leggere ad alta voce, senza elenchi, simboli o abbreviazioni. Puoi "
+          "conversare di qualsiasi cosa, ma per posizioni, distanze, barche vicine e messaggi usa solo i dati di "
+          "bordo che ricevi con la domanda; se non bastano, dillo. Non inventare dati né meteo.")
+
+
+def llm_messages(text, data, now=None, history=()):
+    """The chat for the language model: the fixed instructions first (llama-server keeps them computed between
+    questions), the last exchanges, then the question with the data of this moment."""
+    msgs = [{"role": "system", "content": SYSTEM}]
+    for q, a in list(history)[-4:]:
+        if q and a:
+            msgs += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
+    msgs.append({"role": "user", "content": "Dati di bordo adesso:\n%s\n\nDomanda: %s" % (Boat(data, now).context(), text)})
+    return msgs
