@@ -130,6 +130,34 @@ indirizzo fisso nel router.
 
 Il riconoscimento usa modelli generici (COCO): aiuta a vedere, ma **non sostituisce la guardia**.
 
+## Assistente vocale (facoltativo)
+
+Un assistente che si usa a voce, tutto sul Raspberry e senza internet: il riconoscimento della voce con
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp), le risposte dai dati del nodo, la voce con
+[Piper](https://github.com/rhasspy/piper) e, se lo installi, un piccolo modello linguistico con
+[llama.cpp](https://github.com/ggml-org/llama.cpp) per le domande libere.
+
+Microfono e altoparlante sono quelli del Raspberry: una cuffia Bluetooth o un vivavoce. Si installa con l'utente
+del desktop, quello che ha la cuffia (non con sudo):
+
+```
+bash /opt/navplotter/tools/voice-install.sh
+NAVPLOTTER_LLM=1 bash /opt/navplotter/tools/voice-install.sh     # anche il modello linguistico
+```
+
+Scarica circa 550 MB (con il modello linguistico 1,6 GB in più); se si interrompe, rilancialo e riprende.
+Nella web app compare il pulsante del microfono in basso a destra: tocca, parla, tocca di nuovo. Si sente un
+segnale quando ascolta. La risposta arriva in cuffia ed è scritta anche sullo schermo. Si possono anche scrivere
+le domande.
+
+Domande che capisce: dove siamo, a che velocità andiamo, quanto manca al prossimo waypoint (con l'ora di
+arrivo e il resto della rotta), chi c'è vicino, ci sono allarmi, ci sono messaggi, che ore sono, e "manda un
+messaggio a tutti ..." o "a <nome> ...". Le altre domande vanno al modello linguistico, se c'è.
+
+- Il servizio è `navplotter-voice` dell'utente: `systemctl --user status navplotter-voice`,
+  log con `journalctl --user -u navplotter-voice -f`.
+- Il modello linguistico non sa il meteo e può sbagliare: per i dati di navigazione valgono le risposte dirette.
+
 ## App Android
 
 L'API JSON è la stessa dei nodi (`/api/state`, `/api/config`, `/api/messages`...) e risponde anche alle richieste
