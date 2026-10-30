@@ -128,6 +128,10 @@ class Helpers(unittest.TestCase):
         self.assertEqual(V.after_wake("Computer.", "computer"), "")
         self.assertIsNone(V.after_wake("passami la cima che il computer è giù", "computer"))
         self.assertEqual(V.strip_wake("Computer, quanto manca al porto?", "computer"), "quanto manca al porto?")
+        self.assertEqual(V.after_wake("Compiuter, che ore sono?", "computer"), "che ore sono")
+        self.assertEqual(V.after_wake("Com puter che ore sono", "computer"), "che ore sono")
+        self.assertEqual(V.strip_wake("Ehm, Compiuter: che ore sono?", "computer"), "che ore sono?")
+        self.assertIsNone(V.after_wake("compra il pane", "computer"))
 
     def test_sentences(self):
         self.assertEqual(list(V.sentences(["Ciao", " skipper. Il ve", "nto è 12,5 nodi! E poi", " basta"])),

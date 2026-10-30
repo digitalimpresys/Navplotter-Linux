@@ -20,6 +20,7 @@ It listens only on 127.0.0.1; the node's web server passes /voice/... to it:
 """
 import array
 import collections
+import difflib
 import queue
 import re
 import argparse
@@ -159,26 +160,35 @@ def write_wav(path, pcm):
         w.writeframes(pcm)
 
 
-def after_wake(text, wake):
-    """The words after the wake word, or None if the phrase does not start with it (Whisper may put a word or two
-    of noise in front)."""
+def wake_end(text, wake):
+    """How many words of the phrase, up to the end of the wake word, or None if it does not start with it. Whisper
+    may put a word or two of noise in front, and write the word a little differently ("compiuter", "com puter")."""
     words = assistant.normalize(text).split()
-    names = [assistant.normalize(w) for w in wake.split(",") if w.strip()]
-    for i in range(min(3, len(words))):
-        for n in names:
-            k = len(n.split())
-            if " ".join(words[i:i + k]) == n:
-                return " ".join(words[i + k:])
+    for n in [assistant.normalize(w) for w in wake.split(",") if w.strip()]:
+        k = len(n.split())
+        for i in range(min(3, len(words))):
+            for j in (k, k + 1):            # the word, or the word cut in two
+                if i + j <= len(words) and \
+                        difflib.SequenceMatcher(None, "".join(words[i:i + j]), n.replace(" ", "")).ratio() >= 0.75:
+                    return i + j
     return None
+
+
+def after_wake(text, wake):
+    """The words after the wake word (normalized), or None if the phrase does not start with it."""
+    n = wake_end(text, wake)
+    return None if n is None else " ".join(assistant.normalize(text).split()[n:])
 
 
 def strip_wake(text, wake):
     """The question as Whisper wrote it, without the wake word in front."""
-    for n in [w.strip() for w in wake.split(",") if w.strip()]:
-        m = re.search(r"\b" + r"\W+".join(map(re.escape, n.split())) + r"\b\W*", text, re.I)
-        if m and m.start() < 25:
-            return text[m.end():].strip()
-    return text
+    n = wake_end(text, wake)
+    if not n:
+        return text
+    words = list(re.finditer(r"[^\W_]+(?:'[^\W_]+)*", text))
+    if len(words) < n:
+        return ""
+    return text[words[n - 1].end():].lstrip(" ,.;:!?-").strip()
 
 
 def sentences(chunks):
