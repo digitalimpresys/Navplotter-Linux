@@ -51,6 +51,8 @@ RATE = 16000
 CONFIG = {"always": False, "wake": "computer", "course": True, "courseDeg": 20}
 FOLLOW_S = 8                # after an answer (or the wake word alone), the next phrase needs no wake word
 FRAME = 480                 # 30 ms of audio, the step of the phrase cutter
+END_QUIET = 33              # frames of quiet that end a phrase: 1 s, a pause after the wake word is not the end
+JOIN_S = 3                  # a phrase without the wake word is tried again with the one just before it
 MIN_RMS = 250               # quieter than this is never a voice
 COURSE_EVERY_S = 5
 COURSE_SAMPLES = 6          # off course on average over 30 s before saying it
@@ -225,6 +227,7 @@ class Voice:
         except (OSError, ValueError):
             pass
         self.follow_until = 0.0     # until then a phrase is a question without the wake word
+        self.prev_phrase = None     # (audio, end) of the last phrase that was not for us
         self.deaf_until = 0.0       # do not take our own voice or beep for a question
         self.hearing = False        # the always-on listener is running
         self.cancel = False
@@ -271,6 +274,13 @@ class Voice:
     # ---- listening ----
 
     def start_listening(self):
+        if self.hearing and self.state in ("idle", "speaking"):
+            # Already listening all the time: the button is the wake word, and the next phrase is the question
+            self.stop()
+            self.follow_until = time.monotonic() + FOLLOW_S
+            self.deaf_until = time.monotonic() + 0.3
+            self._play(self.beep)
+            return
         with self.lock:
             if self.state == "listening":
                 return
@@ -538,38 +548,57 @@ class Voice:
                 continue
             seg.append(b)
             quiet = quiet + 1 if r < thr else 0
-            if quiet >= 27 or len(seg) >= 400:          # 0,8 s of quiet, or 12 s
+            if quiet >= END_QUIET or len(seg) >= 400:   # 1 s of quiet, or 12 s
                 if len(seg) - quiet >= 12:
                     cut += 1
                     try:
-                        self.phrases.put_nowait(b"".join(seg))
+                        self.phrases.put_nowait((b"".join(seg), time.monotonic()))
                     except queue.Full:
                         pass
                 seg, loud = None, 0
 
     def _phrases(self):
         while True:
-            self.heard_phrase(self.phrases.get())
+            self.heard_phrase(*self.phrases.get())
 
-    def heard_phrase(self, pcm):
-        if self.state != "idle":
-            return
+    def _hear(self, pcm):
         wav = os.path.join(self.tmp, "phrase.wav")
         write_wav(wav, pcm)
-        following = time.monotonic() < self.follow_until
         try:
-            text = self.transcribe(wav)
+            return self.transcribe(wav)
         except Exception as e:
             log.warning("speech to text: %s", e)
+            return None
+
+    def heard_phrase(self, pcm, end=None):
+        if self.state != "idle":
+            return
+        end = end or time.monotonic()
+        following = time.monotonic() < self.follow_until
+        text = self._hear(pcm)
+        prev, self.prev_phrase = self.prev_phrase, None
+        if not text and not following:
+            log.info("heard a phrase of %s s, but no words", assistant.num(len(pcm) / 2 / RATE))
+            self.prev_phrase = (pcm, end)
             return
         if not text:
             return
         if following:
-            question = text
+            question = strip_wake(text, self.cfg["wake"])   # "computer, ..." said anyway
+            if not question.strip(" .,!?"):
+                self.follow_until = time.monotonic() + FOLLOW_S
+                self._play(self.beep)
+                return
         else:
             rest = after_wake(text, self.cfg["wake"])
+            # Whisper often loses a word said alone ("computer" ... "chi c'è vicino?"): with the phrase before
+            if rest is None and prev and end - len(pcm) / 2 / RATE - prev[1] < JOIN_S:
+                both = self._hear(prev[0] + bytes(RATE // 5 * 2) + pcm)
+                if both and after_wake(both, self.cfg["wake"]) is not None:
+                    text, rest = both, after_wake(both, self.cfg["wake"])
             if rest is None:
                 log.info("heard, not for us (wake word \"%s\"): %s", self.cfg["wake"], text)
+                self.prev_phrase = (pcm, end)
                 return
             if len(rest.split()) < 2:
                 self.follow_until = time.monotonic() + FOLLOW_S

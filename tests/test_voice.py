@@ -75,6 +75,13 @@ class Answers(unittest.TestCase):
             t["alarm"] = False
         self.assertEqual(self.ask("allarmi?", d)[0], "Nessun allarme.")
 
+    def test_named_boat(self):
+        self.assertEqual(self.ask("Dove si trova Pippa?")[0],
+                         "Pippa è a 190 metri, direzione 200 gradi, verso sud, ferma. Attenzione: allarme collisione.")
+        self.assertEqual(self.ask("le coordinate di gejsha")[0], "Gejsha è a 1,2 miglia, direzione 80 gradi, verso est, a 4 nodi.")
+        self.assertTrue(self.ask("ci sono messaggi di Pippa?")[0].startswith("Hai un messaggio nuovo"))
+        self.assertTrue(self.ask("dove siamo?")[0].startswith("Siamo a"))
+
     def test_messages(self):
         self.assertEqual(self.ask("Ci sono messaggi?")[0], "Hai un messaggio nuovo. Da Pippa: ci vediamo al porto.")
 
@@ -286,6 +293,22 @@ class Service(unittest.TestCase):
         self.v.heard_phrase(pcm)
         self.assertTrue(self.v.status()["follow"])
         self.assertEqual(self.v.status()["heard"], "e chi c'è vicino?")
+        # The wake word lost when said alone: tried again together with the question
+        self.v.follow_until = 0
+        said = iter(["", "dove siamo", " Computer, dove siamo?"])
+
+        self.v.transcribe = lambda wav: next(said)
+        self.v.heard_phrase(pcm)                           # "computer": no words
+        self.v.heard_phrase(pcm)                           # "dove siamo": not for us, but with the phrase before...
+        self.wait_idle()
+        self.assertEqual(self.v.status()["heard"], "dove siamo?")
+        self.assertTrue(self.v.status()["reply"].startswith("Siamo a"))
+
+    def test_button_when_listening_all_the_time(self):
+        self.v.hearing = True
+        self.v.start_listening()
+        self.assertEqual(self.v.state, "idle")              # no second recorder: the next phrase is the question
+        self.assertTrue(self.v.status()["follow"])
 
     def test_headset_profile(self):
         d = self.tmp.name
@@ -312,7 +335,8 @@ class Service(unittest.TestCase):
         audio = io.BytesIO(quiet * 30 + loud * 30 + quiet * 40 + loud * 2 + quiet * 40)
         self.v._cut(audio)
         pcm = self.v.phrases.get_nowait()
-        self.assertEqual(len(pcm) // (V.FRAME * 2), 10 + 27 + 27)   # 10 before (3 loud), the phrase, 0,8 s after
+        pcm = pcm[0]
+        self.assertEqual(len(pcm) // (V.FRAME * 2), 10 + 27 + V.END_QUIET)   # 10 before (3 loud), the phrase, 1 s after
         self.assertTrue(self.v.phrases.empty())                    # a click is not a phrase
 
     def test_free_dialogue_streams_sentences(self):

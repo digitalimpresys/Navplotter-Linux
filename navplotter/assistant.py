@@ -144,6 +144,9 @@ def answer(text, data, now=None):
         return alarm(b), None
     if re.search(r"\b(messagg\w*|chat|scritto)\b", q):
         return messages(b), None
+    t = named_target(q, b)
+    if t:
+        return target(t), None
     if re.search(r"\b(waypoint|way point|destinazione|arriv\w*|manca\w*|prossim\w* punto|tappa|rotta attiva|eta)\b", q):
         return waypoint(b), None
     if re.search(r"\b(vicin\w*|barche|barca|chi c'e|chi ce|traffico|bersagl\w*|intorno|nodi vicini)\b", q):
@@ -201,6 +204,24 @@ def nearby(b):
     alarms = [x for x in ts if x.get("alarm")]
     if alarms:
         out += " Attenzione: allarme collisione con %s." % ", ".join(x.get("name") for x in alarms)
+    return out
+
+
+def named_target(q, b):
+    """The boat nearby whose name is in the question ("dove si trova Pippa?")."""
+    words = set(q.split())
+    for t in sorted(b.targets, key=lambda t: -len(t.get("name") or "")):
+        n = normalize(t.get("name") or "")
+        if len(n) >= 3 and (n in words or (" " in n and re.search(r"\b%s\b" % re.escape(n), q))):
+            return t
+    return None
+
+
+def target(t):
+    out = "%s è a %s, direzione %s" % (t.get("name"), distance(t.get("dist", 0)), bearing_words(t.get("brg", 0)))
+    out += (", ferma." if t.get("sog", 0) < 0.3 else ", a %s nodi." % num(t.get("sog", 0)))
+    if t.get("alarm"):
+        out += " Attenzione: allarme collisione."
     return out
 
 
