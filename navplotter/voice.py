@@ -465,7 +465,8 @@ class Voice:
             cmd = [self.parts.stream, "--rate", str(RATE), "--channels", "1"]
             cmd += ["--format=s16le", "--raw"] if self.parts.stream == "parecord" else ["--format", "s16", "-"]
             log.info("listening all the time (%s)", self.parts.stream)
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            err = tempfile.TemporaryFile()
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=err)
             self.hearing = True
             try:
                 self._cut(proc.stdout)
@@ -475,7 +476,11 @@ class Voice:
                 proc.kill()
                 proc.wait()
                 self.hearing = False
+                err.seek(0)
+                msg = err.read().decode("utf-8", "replace").strip()
+                err.close()
             if self.cfg["always"]:
+                log.warning("the recorder stopped%s", (": " + msg[-300:]) if msg else "")
                 time.sleep(2)               # the recorder stopped (the headset went away): again in a moment
 
     def _cut(self, stream):
@@ -483,16 +488,22 @@ class Voice:
         floor = None
         pre = collections.deque(maxlen=10)
         seg, loud, quiet = None, 0, 0
+        report, loudest, cut = time.monotonic() + 5, 0.0, 0
         while self.cfg["always"]:
             b = stream.read(FRAME * 2)
             if len(b) < FRAME * 2:
                 return
+            if time.monotonic() > report:   # in the log, to set the microphone's volume
+                log.info("microphone: background %d, loudest %d, start of a phrase above %d; %d phrases",
+                         floor or 0, loudest, max(MIN_RMS, (floor or 0) * 3), cut)
+                report, loudest, cut = time.monotonic() + 60, 0.0, 0
             busy = self.state != "idle" or time.monotonic() < self.deaf_until
             if busy:
                 seg, loud = None, 0
                 pre.clear()
                 continue
             r = rms(b)
+            loudest = max(loudest, r)
             if seg is None:                 # the background noise, followed slowly up and quickly down
                 floor = r if floor is None else floor + (r - floor) * (0.1 if r < floor else 0.01)
             thr = max(MIN_RMS, floor * 3)
@@ -507,6 +518,7 @@ class Voice:
             quiet = quiet + 1 if r < thr else 0
             if quiet >= 27 or len(seg) >= 400:          # 0,8 s of quiet, or 12 s
                 if len(seg) - quiet >= 12:
+                    cut += 1
                     try:
                         self.phrases.put_nowait(b"".join(seg))
                     except queue.Full:
@@ -535,7 +547,7 @@ class Voice:
         else:
             rest = after_wake(text, self.cfg["wake"])
             if rest is None:
-                log.debug("not for us: %s", text)
+                log.info("heard, not for us: %s", text)
                 return
             if len(rest.split()) < 2:
                 self.follow_until = time.monotonic() + FOLLOW_S

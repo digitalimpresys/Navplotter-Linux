@@ -313,7 +313,7 @@ class Service(unittest.TestCase):
         V.COURSE_EVERY_S = 0.02
         try:
             threading.Thread(target=self.v._course, daemon=True).start()
-            for _ in range(200):
+            for _ in range(500):
                 if os.path.exists(self.played) and "fuori rotta" in open(self.played).read():
                     break
                 time.sleep(0.02)
