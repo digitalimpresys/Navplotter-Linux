@@ -80,4 +80,4 @@ systemctl --user restart navplotter-voice
 
 echo
 echo "Done. In the web app, the microphone button at the bottom right: tap, speak, tap again."
-echo "Log: journalctl --user -u navplotter-voice -f"
+echo "Log: sudo journalctl _SYSTEMD_USER_UNIT=navplotter-voice.service -f"

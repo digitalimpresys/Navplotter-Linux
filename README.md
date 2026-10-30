@@ -168,7 +168,8 @@ Nel pannello dell'assistente (tieni premuto il pulsante del microfono per aprirl
   vanno a lui, che ricorda le ultime battute e comincia a parlare appena ha la prima frase.
 
 - Il servizio è `navplotter-voice` dell'utente: `systemctl --user status navplotter-voice`,
-  log con `journalctl --user -u navplotter-voice -f`.
+  log con `sudo journalctl _SYSTEMD_USER_UNIT=navplotter-voice.service -f` (Raspberry Pi OS tiene il log degli
+  utenti nel giornale di sistema).
 - Il modello linguistico non sa il meteo e può sbagliare: per i dati di navigazione valgono le risposte dirette.
 
 ## App Android
